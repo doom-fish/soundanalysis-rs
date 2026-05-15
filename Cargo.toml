@@ -1,0 +1,65 @@
+[package]
+name = "soundanalysis"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/doom-fish/soundanalysis-rs"
+repository = "https://github.com/doom-fish/soundanalysis-rs"
+description = "Safe Rust bindings for Apple's SoundAnalysis framework — on-device sound classification (cough, music, applause, ...) on macOS"
+authors = ["Per Johansson <per@doom.fish>"]
+keywords = ["sound", "audio", "classification", "macos", "apple"]
+categories = ["api-bindings", "os::macos-apis", "multimedia::audio"]
+rust-version = "1.76"
+readme = "README.md"
+build = "build.rs"
+include = [
+    "src/**/*",
+    "swift-bridge/Package.swift",
+    "swift-bridge/Sources/**/*",
+    "build.rs",
+    "Cargo.toml",
+    "README.md",
+    "LICENSE-*",
+    "CHANGELOG.md",
+]
+
+[lints.rust]
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
+
+[lib]
+name = "soundanalysis"
+crate-type = ["lib"]
+
+[features]
+default = ["analyze_file"]
+analyze_file = []
+
+[dependencies]
+
+[dev-dependencies]
+regex-lite = "0.1"
+
+[package.metadata.docs.rs]
+all-features = true
+default-target = "aarch64-apple-darwin"
+targets = ["aarch64-apple-darwin", "x86_64-apple-darwin"]
+rustdoc-args = ["--cfg", "docsrs"]
+
+[badges]
+maintenance = { status = "actively-developed" }
+
+[[example]]
+name = "01_classify_file"
+required-features = ["analyze_file"]
+
+[[example]]
+name = "02_known_classes"
+required-features = ["analyze_file"]
+
+[profile.release]
+debug = "full"
+strip = "none"
