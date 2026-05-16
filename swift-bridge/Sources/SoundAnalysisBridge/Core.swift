@@ -36,6 +36,11 @@ public func sa_string_free(_ string: UnsafeMutablePointer<CChar>?) {
     free(string)
 }
 
+@_cdecl("sa_copy_sn_error_domain")
+public func sa_copy_sn_error_domain() -> UnsafeMutablePointer<CChar>? {
+    ffiString(SNErrorDomain)
+}
+
 @_cdecl("sa_double_array_free")
 public func sa_double_array_free(_ array: UnsafeMutablePointer<Double>?, _: Int) {
     guard let array else { return }

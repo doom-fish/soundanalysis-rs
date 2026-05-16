@@ -12,6 +12,8 @@ Audited against the macOS `SoundAnalysis.framework` headers shipped in the Xcode
 | `SNResult.h` | `SNResultsObserving::request(_:didProduceResult:)` | `ResultsObserver::did_produce_result`, `SNResultsObserving` | ✅ implemented | Rust observers receive `ClassifySoundRequest` + `ClassificationResult`. |
 | `SNResult.h` | `SNResultsObserving::request(_:didFailWithError:)` | `ResultsObserver::did_fail_with_error`, `SNResultsObserving` | ✅ implemented | Error callbacks surface as `SAError`. |
 | `SNResult.h` | `SNResultsObserving::requestDidComplete(_:)` | `ResultsObserver::did_complete`, `SNResultsObserving` | ✅ implemented | Completion callback is bridged for file and stream analyzers. |
+| `SNError.h` | `SNErrorDomain` | `error_domain()`, `SNErrorDomain()` | ✅ implemented | Exposes the framework's raw `NSError` domain string alongside `SAError`. |
+| `SNError.h` | `SNErrorCode` | `ErrorCode`, `SNErrorCode` | ✅ implemented | Mirrors Apple's error enum with raw-value conversion helpers. |
 | `SNClassifySoundRequest.h` | `overlapFactor` | `ClassifySoundRequest::overlap_factor`, `set_overlap_factor` | ✅ implemented | Getter/setter validated in Rust before reaching Swift. |
 | `SNClassifySoundRequest.h` | `windowDuration` | `ClassifySoundRequest::window_duration`, `set_window_duration` | ✅ implemented | Exposed as seconds for ergonomic Rust access. |
 | `SNClassifySoundRequest.h` | `windowDurationConstraint` | `ClassifySoundRequest::window_duration_constraint` | ✅ implemented | Bridged through `TimeDurationConstraint` / `SNTimeDurationConstraint`. |

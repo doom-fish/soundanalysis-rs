@@ -5,10 +5,10 @@ Audited against `SoundAnalysis.framework` in Xcode 26.2 (`MacOSX26.2.sdk`).
 This audit counts top-level exported SoundAnalysis types/constants/protocols **and** the public Objective-C properties/methods on those interfaces/protocols, excluding `NS_UNAVAILABLE` initializers. The crate’s existing `tests/api_coverage.rs` already verifies the request/result/analyzer member surface; this document extends that audit to the full framework surface, including exported error symbols.
 
 SDK_PUBLIC_SYMBOLS: 46
-VERIFIED: 44
-GAPS: 2
+VERIFIED: 46
+GAPS: 0
 EXEMPT: 0
-COVERAGE_PCT: 95.7%
+COVERAGE_PCT: 100.0%
 
 ## 🟢 VERIFIED
 | Symbol | Kind | Header | Wrapped by |
@@ -21,6 +21,8 @@ COVERAGE_PCT: 95.7%
 | `SNResultsObserving.request(_:didProduceResult:)` | protocol method | `SNResult.h` | `ResultsObserver::did_produce_result` |
 | `SNResultsObserving.request(_:didFailWithError:)` | protocol method | `SNResult.h` | `ResultsObserver::did_fail_with_error` |
 | `SNResultsObserving.requestDidComplete(_:)` | protocol method | `SNResult.h` | `ResultsObserver::did_complete` |
+| `SNErrorDomain` | exported constant | `SNError.h` | `error_domain()`, `SNErrorDomain()` |
+| `SNErrorCode` | error enum typedef | `SNError.h` | `ErrorCode`, `SNErrorCode` |
 | `SNAudioStreamAnalyzer` | interface | `SNAnalyzer.h` | `AudioStreamAnalyzer`, `SNAudioStreamAnalyzer` |
 | `SNAudioStreamAnalyzer.initWithFormat(_:)` | initializer | `SNAnalyzer.h` | `AudioStreamAnalyzer::new` |
 | `SNAudioStreamAnalyzer.addRequest(_:withObserver:error:)` | method | `SNAnalyzer.h` | `AudioStreamAnalyzer::add_request` |
@@ -61,11 +63,10 @@ COVERAGE_PCT: 95.7%
 ## 🔴 GAPS
 | Symbol | Kind | Header | Notes |
 | --- | --- | --- | --- |
-| `SNErrorDomain` | exported constant | `SNError.h` | Public Rust errors are normalized into `SAError`; the crate does not expose Apple’s `SNErrorDomain` constant. |
-| `SNErrorCode` | error enum typedef | `SNError.h` | `SAError` abstracts bridge failures into coarse variants and custom bridge status codes, so the framework’s raw `SNErrorCode` enum/cases are not publicly wrapped. |
+| _None_ | — | — | All public macOS `SoundAnalysis` symbols in the audited surface are wrapped. |
 
 ## ⏭️ EXEMPT
 | Symbol | Kind | Header | Reason | SDK attribute |
 | --- | --- | --- | --- | --- |
 
-Validation: `cargo test --quiet`
+Validation: `cargo clippy --all-targets -- -D warnings && cargo test`

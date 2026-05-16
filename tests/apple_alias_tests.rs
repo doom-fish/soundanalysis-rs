@@ -1,10 +1,11 @@
 use std::path::PathBuf;
 
 use soundanalysis::{
-    AnalysisRequest, AnalysisResult, Classification, ClassificationResult, ClassifierIdentifier,
-    ClassifySoundRequest, SAError, SNClassification, SNClassificationResult,
-    SNClassifierIdentifier, SNClassifySoundRequest, SNRequest, SNResult, SNTimeDurationConstraint,
-    SNTimeRange, TimeDurationConstraint, TimeRange,
+    error_domain, AnalysisRequest, AnalysisResult, Classification, ClassificationResult,
+    ClassifierIdentifier, ClassifySoundRequest, ErrorCode, SAError, SNClassification,
+    SNClassificationResult, SNClassifierIdentifier, SNClassifySoundRequest, SNErrorCode,
+    SNErrorDomain, SNRequest, SNResult, SNTimeDurationConstraint, SNTimeRange,
+    TimeDurationConstraint, TimeRange,
 };
 
 const fn assert_request<T: SNRequest + AnalysisRequest>() {}
@@ -48,6 +49,18 @@ fn apple_aliases_typecheck_and_match_safe_wrappers() {
         result.classification_for_identifier("speech"),
         Some(&classification)
     );
+}
+
+#[test]
+fn error_aliases_expose_sdk_symbols() {
+    assert_eq!(error_domain(), "com.apple.SoundAnalysis");
+    assert_eq!(SNErrorDomain(), error_domain());
+
+    let code: SNErrorCode = ErrorCode::InvalidModel;
+    assert_eq!(code, SNErrorCode::InvalidModel);
+    assert_eq!(SNErrorCode::OperationFailed.as_raw(), 2);
+    assert_eq!(ErrorCode::from_raw(5), Some(ErrorCode::InvalidFile));
+    assert_eq!(SNErrorCode::try_from(99), Err(99));
 }
 
 #[test]

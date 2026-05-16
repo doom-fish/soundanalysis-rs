@@ -1,5 +1,16 @@
 # Changelog
 
+## [v0.5.1]
+
+### Added
+
+- `error_domain()` / `SNErrorDomain()` and `ErrorCode` / `SNErrorCode` for the public `SNError.h` exports (`SNErrorDomain`, `SNErrorCode`).
+- Coverage smoke tests for the `SNError.h` surface in `tests/api_coverage.rs` and `tests/apple_alias_tests.rs`.
+
+### Changed
+
+- `COVERAGE.md` and `COVERAGE_AUDIT.md` now report 100.0% coverage for the 46 public macOS `SoundAnalysis` symbols audited from Xcode 26.2.
+
 ## [v0.5.0]
 
 ### Added

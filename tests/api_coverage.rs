@@ -268,6 +268,15 @@ fn sn_classifier_identifier_coverage() {
 }
 
 #[test]
+fn sn_error_symbols_coverage() {
+    let header = read_header("SNError");
+    assert!(header.contains("SNErrorDomain"));
+    assert!(header.contains("SNErrorCode"));
+    assert_surface_contains_one_of("SNErrorDomain", &["SNErrorDomain", "error_domain("]);
+    assert_surface_contains_one_of("SNErrorCode", &["SNErrorCode", "ErrorCode"]);
+}
+
+#[test]
 fn sn_classify_sound_request_coverage() {
     let header = read_header("SNClassifySoundRequest");
     let body = extract_interface(&header, "SNClassifySoundRequest");

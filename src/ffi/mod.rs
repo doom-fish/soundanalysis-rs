@@ -66,22 +66,18 @@ pub type ObserverResultCallback = unsafe extern "C" fn(
     classification_count: usize,
 );
 
-pub type ObserverErrorCallback = unsafe extern "C" fn(
-    user_info: *mut c_void,
-    status: i32,
-    error_message: *mut c_char,
-);
+pub type ObserverErrorCallback =
+    unsafe extern "C" fn(user_info: *mut c_void, status: i32, error_message: *mut c_char);
 
 pub type ObserverCompleteCallback = unsafe extern "C" fn(user_info: *mut c_void);
 
 extern "C" {
     pub fn sa_string_free(s: *mut c_char);
     pub fn sa_double_array_free(array: *mut f64, count: usize);
+    pub fn sa_copy_sn_error_domain() -> *mut c_char;
 
-    pub fn sa_known_classifications(
-        out_array: *mut *mut *mut c_char,
-        out_count: *mut usize,
-    ) -> i32;
+    pub fn sa_known_classifications(out_array: *mut *mut *mut c_char, out_count: *mut usize)
+        -> i32;
     pub fn sa_known_classifications_free(array: *mut *mut c_char, count: usize);
 
     pub fn sa_classify_file(

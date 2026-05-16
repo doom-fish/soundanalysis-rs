@@ -2,7 +2,7 @@
 
 Safe Rust bindings for Apple's [SoundAnalysis](https://developer.apple.com/documentation/soundanalysis) framework on macOS.
 
-> **Status:** v0.5 audits the public macOS `SoundAnalysis.framework` surface against the Xcode 26.2 SDK, adds Apple-style aliases (`SNClassifySoundRequest`, `SNClassifierIdentifier`, `SNRequest`, `SNResult`, `SNTimeRange`), and documents the full mapping in [`COVERAGE.md`](COVERAGE.md). Requested symbols that are absent from the current macOS SDK (`SNDetectSoundEventRequest`, `SNAcousticFeaturePrintRequest`, `SNAcousticFeaturePrint`) are called out there as skipped.
+> **Status:** v0.5.1 audits the full public macOS `SoundAnalysis.framework` surface against the Xcode 26.2 SDK, including raw `SNErrorDomain` / `SNErrorCode` exports alongside the Apple-style aliases (`SNClassifySoundRequest`, `SNClassifierIdentifier`, `SNRequest`, `SNResult`, `SNTimeRange`). The complete mapping lives in [`COVERAGE.md`](COVERAGE.md). Requested symbols that are absent from the current macOS SDK (`SNDetectSoundEventRequest`, `SNAcousticFeaturePrintRequest`, `SNAcousticFeaturePrint`) are called out there as skipped.
 
 ## Quick start
 
@@ -55,7 +55,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-For real-time use, `AudioStreamAnalyzer` accepts interleaved or planar PCM buffers (`f32`, `f64`, `i16`, `i32`) and `start_live_classification()` keeps the high-level microphone convenience API. If you prefer Apple naming, the crate now re-exports `SNClassifySoundRequest`, `SNClassifierIdentifier`, `SNAudioFileAnalyzer`, `SNAudioStreamAnalyzer`, `SNClassificationResult`, `SNClassification`, `SNTimeDurationConstraint`, `SNTimeRange`, `SNRequest`, `SNResult`, and `SNResultsObserving` alongside the ergonomic Rust names.
+For real-time use, `AudioStreamAnalyzer` accepts interleaved or planar PCM buffers (`f32`, `f64`, `i16`, `i32`) and `start_live_classification()` keeps the high-level microphone convenience API. If you prefer Apple naming, the crate now re-exports `SNClassifySoundRequest`, `SNClassifierIdentifier`, `SNAudioFileAnalyzer`, `SNAudioStreamAnalyzer`, `SNClassificationResult`, `SNClassification`, `SNTimeDurationConstraint`, `SNTimeRange`, `SNRequest`, `SNResult`, `SNResultsObserving`, `SNErrorDomain()`, and `SNErrorCode` alongside the ergonomic Rust names. The raw SDK error identifiers are also available as `error_domain()` and `ErrorCode` while `SAError` remains the higher-level operational error type.
 
 ## Examples
 

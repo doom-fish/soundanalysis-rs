@@ -41,7 +41,7 @@ pub mod live;
 #[cfg_attr(docsrs, doc(cfg(feature = "stream")))]
 pub mod streaming;
 
-pub use error::SAError;
+pub use error::{error_domain, ErrorCode, SAError, SNErrorCode, SNErrorDomain};
 pub use observer::ResultsObserver as SNResultsObserving;
 pub use observer::{AnalysisResult, ResultsObserver, ResultsObserverFns, SNResult};
 pub use request::{
@@ -83,7 +83,7 @@ pub mod prelude {
     pub use crate::classifier::{
         Classification as SNClassification, ClassificationResult as SNClassificationResult,
     };
-    pub use crate::error::SAError;
+    pub use crate::error::{error_domain, ErrorCode, SAError, SNErrorCode, SNErrorDomain};
     #[cfg(feature = "analyze_file")]
     pub use crate::file::{AudioFileAnalyzer, AudioFileAnalyzer as SNAudioFileAnalyzer};
     #[cfg(feature = "stream")]

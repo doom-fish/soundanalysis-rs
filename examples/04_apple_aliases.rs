@@ -3,8 +3,9 @@
 //! Run: `cargo run --example 04_apple_aliases`
 
 use soundanalysis::{
-    SNClassification, SNClassificationResult, SNClassifierIdentifier, SNClassifySoundRequest,
-    SNRequest, SNResult, SNTimeDurationConstraint, SNTimeRange, TimeDurationConstraint, TimeRange,
+    error_domain, ErrorCode, SNClassification, SNClassificationResult, SNClassifierIdentifier,
+    SNClassifySoundRequest, SNErrorCode, SNErrorDomain, SNRequest, SNResult,
+    SNTimeDurationConstraint, SNTimeRange, TimeDurationConstraint, TimeRange,
 };
 
 const fn assert_request<T: SNRequest>() {}
@@ -16,6 +17,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let request =
         SNClassifySoundRequest::with_classifier_identifier(SNClassifierIdentifier::Version1)?;
+    let error_code: SNErrorCode = ErrorCode::InvalidModel;
+    assert_eq!(SNErrorDomain(), error_domain());
+
     let range: SNTimeRange = TimeRange {
         start_seconds: 0.5,
         duration_seconds: 1.5,
@@ -33,8 +37,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     println!(
-        "alias request overlap={:.2}, constraint={:?}, time_range={:?}, top={:?}",
+        "alias request overlap={:.2}, error_domain={}, invalid_model_code={}, constraint={:?}, time_range={:?}, top={:?}",
         request.overlap_factor(),
+        SNErrorDomain(),
+        error_code.as_raw(),
         constraint.constraint_type(),
         result.time_range(),
         result
