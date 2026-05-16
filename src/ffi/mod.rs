@@ -34,7 +34,23 @@ extern "C" {
         out_error_message: *mut *mut c_char,
     ) -> i32;
     pub fn sa_classification_results_free(array: *mut c_void, count: usize);
+
+    pub fn sa_stream_start(
+        callback: StreamCallback,
+        user_info: *mut c_void,
+        out_err: *mut *mut c_char,
+    ) -> *mut c_void;
+
+    pub fn sa_stream_stop(handle: *mut c_void);
 }
+
+pub type StreamCallback = unsafe extern "C" fn(
+    user_info: *mut c_void,
+    time_start: f64,
+    time_duration: f64,
+    classifications: *mut c_void,
+    classification_count: usize,
+);
 
 pub mod status {
     pub const OK: i32 = 0;

@@ -206,3 +206,117 @@ public func sa_classification_results_free(_ array: UnsafeMutableRawPointer?, _ 
     }
     typed.deallocate()
 }
+
+// MARK: - Live mic streaming (v0.2)
+
+/// Callback shape:
+///   user_info, time_start, time_duration, classifications_ptr, classification_count
+public typealias SAStreamCallback = @convention(c) (
+    UnsafeMutableRawPointer?,
+    Double, Double,
+    UnsafeMutableRawPointer?,
+    Int
+) -> Void
+
+@available(macOS 10.15, *)
+private final class SAStreamObserver: NSObject, SNResultsObserving {
+    let callback: SAStreamCallback
+    let userInfo: UnsafeMutableRawPointer?
+
+    init(callback: SAStreamCallback, userInfo: UnsafeMutableRawPointer?) {
+        self.callback = callback
+        self.userInfo = userInfo
+    }
+
+    func request(_ request: SNRequest, didProduce result: SNResult) {
+        guard let classification = result as? SNClassificationResult else { return }
+        let range = classification.timeRange
+        let timeStart = CMTimeGetSeconds(range.start)
+        let timeDur = CMTimeGetSeconds(range.duration)
+
+        let classifications = classification.classifications
+        let n = classifications.count
+        if n == 0 {
+            callback(userInfo, timeStart, timeDur, nil, 0)
+            return
+        }
+        let buf = UnsafeMutablePointer<SAClassificationRaw>.allocate(capacity: n)
+        for (i, c) in classifications.enumerated() {
+            buf.advanced(by: i).initialize(to: SAClassificationRaw(
+                identifier: strdup(c.identifier),
+                confidence: c.confidence
+            ))
+        }
+        callback(userInfo, timeStart, timeDur, UnsafeMutableRawPointer(buf), n)
+        for i in 0..<n {
+            if let s = buf[i].identifier { free(s) }
+        }
+        buf.deallocate()
+    }
+}
+
+private final class SAStreamSession {
+    let engine = AVAudioEngine()
+    let analyzer: SNAudioStreamAnalyzer
+    let observer: SAStreamObserver
+    var framePos: AVAudioFramePosition = 0
+
+    init(observer: SAStreamObserver) throws {
+        let input = engine.inputNode
+        let format = input.outputFormat(forBus: 0)
+        analyzer = SNAudioStreamAnalyzer(format: format)
+        self.observer = observer
+        let request = try SNClassifySoundRequest(classifierIdentifier: .version1)
+        try analyzer.add(request, withObserver: observer)
+        input.installTap(onBus: 0, bufferSize: 8192, format: format) { [weak self] buf, _ in
+            guard let self = self else { return }
+            self.analyzer.analyze(buf, atAudioFramePosition: self.framePos)
+            self.framePos += AVAudioFramePosition(buf.frameLength)
+        }
+    }
+
+    func start() throws { try engine.start() }
+    func stop() {
+        engine.stop()
+        engine.inputNode.removeTap(onBus: 0)
+        analyzer.completeAnalysis()
+    }
+}
+
+private var streamSessions: [UnsafeMutableRawPointer: SAStreamSession] = [:]
+private let streamSessionsLock = NSLock()
+
+@_cdecl("sa_stream_start")
+public func sa_stream_start(
+    _ callback: SAStreamCallback,
+    _ user_info: UnsafeMutableRawPointer?,
+    _ out_err: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+) -> UnsafeMutableRawPointer? {
+    if #unavailable(macOS 10.15) {
+        out_err?.pointee = ffiString("requires macOS 10.15+")
+        return nil
+    }
+    do {
+        let observer = SAStreamObserver(callback: callback, userInfo: user_info)
+        let session = try SAStreamSession(observer: observer)
+        try session.start()
+        let key = Unmanaged.passRetained(session).toOpaque()
+        streamSessionsLock.lock()
+        streamSessions[key] = session
+        streamSessionsLock.unlock()
+        return key
+    } catch {
+        out_err?.pointee = ffiString("stream start failed: \(error.localizedDescription)")
+        return nil
+    }
+}
+
+@_cdecl("sa_stream_stop")
+public func sa_stream_stop(_ handle: UnsafeMutableRawPointer?) {
+    guard let handle = handle else { return }
+    streamSessionsLock.lock()
+    let session = streamSessions.removeValue(forKey: handle)
+    streamSessionsLock.unlock()
+    session?.stop()
+    Unmanaged<SAStreamSession>.fromOpaque(handle).release()
+}

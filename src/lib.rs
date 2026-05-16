@@ -18,10 +18,17 @@ pub mod ffi;
 #[cfg_attr(docsrs, doc(cfg(feature = "analyze_file")))]
 pub mod classifier;
 
+#[cfg(feature = "stream")]
+#[cfg_attr(docsrs, doc(cfg(feature = "stream")))]
+pub mod live;
+
 pub use error::SAError;
 
 #[cfg(feature = "analyze_file")]
 pub use classifier::{classify_file, known_classifications, Classification, ClassificationResult};
+
+#[cfg(feature = "stream")]
+pub use live::{start_live_classification, LiveClassification, StreamUpdate};
 
 /// Common imports.
 pub mod prelude {
@@ -30,4 +37,6 @@ pub mod prelude {
     pub use crate::classifier::{
         classify_file, known_classifications, Classification, ClassificationResult,
     };
+    #[cfg(feature = "stream")]
+    pub use crate::live::{start_live_classification, LiveClassification, StreamUpdate};
 }
