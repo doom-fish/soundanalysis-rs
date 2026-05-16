@@ -8,6 +8,7 @@ use std::path::Path;
 use crate::error::{from_swift, SAError};
 use crate::ffi;
 use crate::request::ClassifySoundRequest;
+use crate::time::TimeRange;
 
 /// One ranked classification at one point in time.
 #[derive(Debug, Clone, PartialEq)]
@@ -40,6 +41,15 @@ impl ClassificationResult {
                 .partial_cmp(&b.confidence)
                 .unwrap_or(core::cmp::Ordering::Equal)
         })
+    }
+
+    /// Return this result's time range as a reusable Rust value.
+    #[must_use]
+    pub fn time_range(&self) -> TimeRange {
+        TimeRange {
+            start_seconds: self.time_start,
+            duration_seconds: self.time_duration,
+        }
     }
 
     /// Find a particular classification by identifier.

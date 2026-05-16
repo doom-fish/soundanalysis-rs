@@ -14,9 +14,13 @@ mod private {
 }
 
 /// Marker trait for Rust types that model Apple's `SNResult` protocol.
-pub trait AnalysisResult: private::Sealed {}
+pub trait SNResult: private::Sealed {}
+
+/// Backwards-compatible alias for [`SNResult`].
+pub trait AnalysisResult: SNResult {}
 
 impl private::Sealed for ClassificationResult {}
+impl SNResult for ClassificationResult {}
 impl AnalysisResult for ClassificationResult {}
 
 /// Rust equivalent of `SNResultsObserving`.

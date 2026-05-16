@@ -324,7 +324,9 @@ impl AudioStreamAnalyzer {
     }
 
     pub fn remove_request(&mut self, request: &ClassifySoundRequest) {
-        unsafe { ffi::sa_audio_stream_analyzer_remove_request(self.ptr.as_ptr(), request.as_raw()) };
+        unsafe {
+            ffi::sa_audio_stream_analyzer_remove_request(self.ptr.as_ptr(), request.as_raw());
+        }
         if let Some(observer) = self.observers.remove(&request_key(request)) {
             unsafe { drop_observer(observer.cast()) };
         }

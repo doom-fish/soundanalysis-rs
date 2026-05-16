@@ -42,42 +42,66 @@ pub mod live;
 pub mod streaming;
 
 pub use error::SAError;
-pub use observer::{AnalysisResult, ResultsObserver, ResultsObserverFns};
-pub use request::{AnalysisRequest, ClassifierIdentifier, ClassifySoundRequest};
+pub use observer::ResultsObserver as SNResultsObserving;
+pub use observer::{AnalysisResult, ResultsObserver, ResultsObserverFns, SNResult};
+pub use request::{
+    AnalysisRequest, ClassifierIdentifier, ClassifySoundRequest, SNClassifierIdentifier,
+    SNClassifySoundRequest, SNRequest,
+};
 pub use time::{TimeDurationConstraint, TimeDurationConstraintType, TimeRange};
+pub use time::{TimeDurationConstraint as SNTimeDurationConstraint, TimeRange as SNTimeRange};
 
 #[cfg(feature = "analyze_file")]
 pub use classifier::{
     classify_file, classify_file_with_model, known_classifications, Classification,
     ClassificationResult,
 };
+#[cfg(feature = "analyze_file")]
+pub use classifier::{
+    Classification as SNClassification, ClassificationResult as SNClassificationResult,
+};
 
 #[cfg(feature = "analyze_file")]
-pub use file::AudioFileAnalyzer;
+pub use file::{AudioFileAnalyzer, AudioFileAnalyzer as SNAudioFileAnalyzer};
 
 #[cfg(feature = "stream")]
 pub use live::{start_live_classification, LiveClassification, StreamUpdate};
 
 #[cfg(feature = "stream")]
+pub use streaming::AudioStreamAnalyzer as SNAudioStreamAnalyzer;
+#[cfg(feature = "stream")]
 pub use streaming::{AudioStreamAnalyzer, AudioStreamFormat, PcmBuffer, PcmSampleFormat};
 
 /// Common imports.
 pub mod prelude {
-    pub use crate::error::SAError;
-    pub use crate::observer::{ResultsObserver, ResultsObserverFns};
-    pub use crate::request::{ClassifierIdentifier, ClassifySoundRequest};
-    pub use crate::time::{TimeDurationConstraint, TimeDurationConstraintType, TimeRange};
     #[cfg(feature = "analyze_file")]
     pub use crate::classifier::{
         classify_file, classify_file_with_model, known_classifications, Classification,
         ClassificationResult,
     };
     #[cfg(feature = "analyze_file")]
-    pub use crate::file::AudioFileAnalyzer;
+    pub use crate::classifier::{
+        Classification as SNClassification, ClassificationResult as SNClassificationResult,
+    };
+    pub use crate::error::SAError;
+    #[cfg(feature = "analyze_file")]
+    pub use crate::file::{AudioFileAnalyzer, AudioFileAnalyzer as SNAudioFileAnalyzer};
     #[cfg(feature = "stream")]
     pub use crate::live::{start_live_classification, LiveClassification, StreamUpdate};
+    pub use crate::observer::ResultsObserver as SNResultsObserving;
+    pub use crate::observer::{ResultsObserver, ResultsObserverFns, SNResult};
+    pub use crate::request::{
+        ClassifierIdentifier, ClassifySoundRequest, SNClassifierIdentifier, SNClassifySoundRequest,
+        SNRequest,
+    };
+    #[cfg(feature = "stream")]
+    pub use crate::streaming::AudioStreamAnalyzer as SNAudioStreamAnalyzer;
     #[cfg(feature = "stream")]
     pub use crate::streaming::{
         AudioStreamAnalyzer, AudioStreamFormat, PcmBuffer, PcmSampleFormat,
+    };
+    pub use crate::time::{TimeDurationConstraint, TimeDurationConstraintType, TimeRange};
+    pub use crate::time::{
+        TimeDurationConstraint as SNTimeDurationConstraint, TimeRange as SNTimeRange,
     };
 }

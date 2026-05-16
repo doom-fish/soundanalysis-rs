@@ -1,5 +1,18 @@
 # Changelog
 
+## [v0.5.0]
+
+### Added
+
+- `COVERAGE.md` auditing the macOS `SoundAnalysis.framework` headers against the crate surface, including requested-but-unavailable SDK symbols (`SNDetectSoundEventRequest`, `SNAcousticFeaturePrintRequest`, `SNAcousticFeaturePrint`).
+- Apple-style alias exports for the primary SoundAnalysis types and protocols: `SNClassifySoundRequest`, `SNClassifierIdentifier`, `SNRequest`, `SNResult`, `SNResultsObserving`, `SNAudioFileAnalyzer`, `SNAudioStreamAnalyzer`, `SNClassification`, `SNClassificationResult`, `SNTimeDurationConstraint`, and `SNTimeRange`.
+- `04_apple_aliases` and `05_custom_model_request` examples plus `apple_alias_tests.rs`.
+
+### Changed
+
+- Split the Swift bridge into logical files (`Requests.swift`, `Analyzers.swift`, `Classification.swift`, `Live.swift`) to match the multi-file bridge pattern used by `screencapturekit-rs`.
+- Expanded API coverage tests to audit `SNRequest`, `SNResult`, `SNClassifierIdentifier`, and the coverage document itself.
+
 ## [v0.4.0]
 
 ### Added

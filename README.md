@@ -2,7 +2,7 @@
 
 Safe Rust bindings for Apple's [SoundAnalysis](https://developer.apple.com/documentation/soundanalysis) framework on macOS.
 
-> **Status:** v0.4 exposes the full public `SoundAnalysis.framework` surface: `SNClassifySoundRequest`, `SNAudioFileAnalyzer`, `SNAudioStreamAnalyzer`, `SNClassificationResult`, `SNResultsObserving`, `SNTimeDurationConstraint`, built-in `version1` classification, custom Core ML models, live microphone convenience, and raw PCM buffer analysis.
+> **Status:** v0.5 audits the public macOS `SoundAnalysis.framework` surface against the Xcode 26.2 SDK, adds Apple-style aliases (`SNClassifySoundRequest`, `SNClassifierIdentifier`, `SNRequest`, `SNResult`, `SNTimeRange`), and documents the full mapping in [`COVERAGE.md`](COVERAGE.md). Requested symbols that are absent from the current macOS SDK (`SNDetectSoundEventRequest`, `SNAcousticFeaturePrintRequest`, `SNAcousticFeaturePrint`) are called out there as skipped.
 
 ## Quick start
 
@@ -55,13 +55,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-For real-time use, `AudioStreamAnalyzer` accepts interleaved or planar PCM buffers (`f32`, `f64`, `i16`, `i32`) and `start_live_classification()` keeps the high-level microphone convenience API.
+For real-time use, `AudioStreamAnalyzer` accepts interleaved or planar PCM buffers (`f32`, `f64`, `i16`, `i32`) and `start_live_classification()` keeps the high-level microphone convenience API. If you prefer Apple naming, the crate now re-exports `SNClassifySoundRequest`, `SNClassifierIdentifier`, `SNAudioFileAnalyzer`, `SNAudioStreamAnalyzer`, `SNClassificationResult`, `SNClassification`, `SNTimeDurationConstraint`, `SNTimeRange`, `SNRequest`, `SNResult`, and `SNResultsObserving` alongside the ergonomic Rust names.
 
 ## Examples
 
 - `cargo run --example 01_classify_file`
 - `cargo run --example 02_known_classes`
 - `cargo run --all-features --example 03_smoke_surface`
+- `cargo run --example 04_apple_aliases`
+- `cargo run --example 05_custom_model_request`
 
 ## Pipeline composition
 

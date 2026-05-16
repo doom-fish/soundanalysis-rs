@@ -104,22 +104,72 @@ fn extract_member_surface(body: &str) -> BTreeSet<String> {
 fn aliases() -> BTreeMap<&'static str, Vec<&'static str>> {
     BTreeMap::from([
         ("initWithURL", vec!["(url:", "AudioFileAnalyzer::new"]),
-        ("initWithFormat", vec!["(format:", "AudioStreamAnalyzer::new"]),
+        (
+            "initWithFormat",
+            vec!["(format:", "AudioStreamAnalyzer::new"],
+        ),
         ("initWithMLModel", vec!["(mlModel:", "with_model_file("]),
-        ("initWithClassifierIdentifier", vec!["(classifierIdentifier:", "with_classifier_identifier("]),
+        (
+            "initWithClassifierIdentifier",
+            vec!["(classifierIdentifier:", "with_classifier_identifier("],
+        ),
         ("addRequest", vec![".add(", "add_request("]),
         ("removeRequest", vec![".remove(", "remove_request("]),
-        ("removeAllRequests", vec!["removeAllRequests(", "remove_all_requests("]),
-        ("analyzeWithCompletionHandler", vec!["analyze_with_completion_handler(", "analyze {"]),
-        ("cancelAnalysis", vec!["cancelAnalysis(", "cancel_analysis("]),
-        ("analyzeAudioBuffer", vec!["atAudioFramePosition", "analyze_audio_buffer("]),
-        ("classificationForIdentifier", vec!["classification_for_identifier("]),
-        ("type", vec!["constraint_type(", ".enumeratedDurations(", ".durationRange("]),
-        ("enumeratedDurations", vec!["enumerated_durations(", ".enumeratedDurations("]),
+        (
+            "removeAllRequests",
+            vec!["removeAllRequests(", "remove_all_requests("],
+        ),
+        (
+            "analyzeWithCompletionHandler",
+            vec!["analyze_with_completion_handler(", "analyze {"],
+        ),
+        (
+            "cancelAnalysis",
+            vec!["cancelAnalysis(", "cancel_analysis("],
+        ),
+        (
+            "analyzeAudioBuffer",
+            vec!["atAudioFramePosition", "analyze_audio_buffer("],
+        ),
+        (
+            "classificationForIdentifier",
+            vec!["classification_for_identifier("],
+        ),
+        (
+            "type",
+            vec![
+                "constraint_type(",
+                ".enumeratedDurations(",
+                ".durationRange(",
+            ],
+        ),
+        (
+            "enumeratedDurations",
+            vec!["enumerated_durations(", ".enumeratedDurations("],
+        ),
         ("durationRange", vec!["duration_range(", ".durationRange("]),
-        ("initWithEnumeratedDurations", vec!["TimeDurationConstraint::enumerated(", ".enumeratedDurations("]),
-        ("initWithDurationRange", vec!["TimeDurationConstraint::range(", ".durationRange("]),
-        ("requestDidComplete", vec!["requestDidComplete(", "did_complete("]),
+        (
+            "initWithEnumeratedDurations",
+            vec![
+                "TimeDurationConstraint::enumerated(",
+                ".enumeratedDurations(",
+            ],
+        ),
+        (
+            "initWithDurationRange",
+            vec!["TimeDurationConstraint::range(", ".durationRange("],
+        ),
+        (
+            "requestDidComplete",
+            vec!["requestDidComplete(", "did_complete("],
+        ),
+        (
+            "SNClassifierIdentifierVersion1",
+            vec![
+                "ClassifierIdentifier::Version1",
+                "SNClassifierIdentifier::Version1",
+            ],
+        ),
     ])
 }
 
@@ -141,7 +191,12 @@ fn references_in_surface(symbols: &BTreeSet<String>) -> BTreeSet<String> {
         .collect()
 }
 
-fn report(name: &str, apple: &BTreeSet<String>, ours: &BTreeSet<String>, omitted: &BTreeSet<String>) {
+fn report(
+    name: &str,
+    apple: &BTreeSet<String>,
+    ours: &BTreeSet<String>,
+    omitted: &BTreeSet<String>,
+) {
     let wrapped: BTreeSet<&String> = apple.intersection(ours).collect();
     let missing: BTreeSet<&String> = apple
         .difference(ours)
@@ -170,6 +225,46 @@ fn report(name: &str, apple: &BTreeSet<String>, ours: &BTreeSet<String>, omitted
 
 fn omitted_set<const N: usize>(items: [&str; N]) -> BTreeSet<String> {
     items.into_iter().map(String::from).collect()
+}
+
+fn assert_surface_contains_one_of(name: &str, needles: &[&str]) {
+    let surface = read_surface();
+    assert!(
+        needles.iter().any(|needle| surface.contains(needle)),
+        "{name}: none of {needles:?} found in Rust/Swift surface"
+    );
+}
+
+#[test]
+fn sn_request_protocol_coverage() {
+    let header = read_header("SNRequest");
+    assert!(header.contains("@protocol SNRequest"));
+    assert_surface_contains_one_of("SNRequest", &["trait SNRequest", "trait AnalysisRequest"]);
+}
+
+#[test]
+fn sn_result_protocol_coverage() {
+    let header = read_header("SNResult");
+    assert!(header.contains("@protocol SNResult"));
+    assert_surface_contains_one_of("SNResult", &["trait SNResult", "trait AnalysisResult"]);
+}
+
+#[test]
+fn sn_classifier_identifier_coverage() {
+    let header = read_header("SNTypes");
+    assert!(header.contains("SNClassifierIdentifier"));
+    assert!(header.contains("SNClassifierIdentifierVersion1"));
+    assert_surface_contains_one_of(
+        "SNClassifierIdentifier",
+        &["SNClassifierIdentifier", "ClassifierIdentifier"],
+    );
+    assert_surface_contains_one_of(
+        "SNClassifierIdentifierVersion1",
+        &[
+            "ClassifierIdentifier::Version1",
+            "SNClassifierIdentifier::Version1",
+        ],
+    );
 }
 
 #[test]
@@ -240,4 +335,19 @@ fn sn_results_observing_coverage() {
     let ours = references_in_surface(&apple);
     let omitted = omitted_set([]);
     report("SNResultsObserving", &apple, &ours, &omitted);
+}
+
+#[test]
+fn coverage_doc_mentions_requested_audit_targets() {
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let coverage = read(&manifest.join("COVERAGE.md"));
+    for symbol in [
+        "SNClassifier",
+        "SNDetectSoundEventRequest",
+        "SNAcousticFeaturePrintRequest",
+        "SNAcousticFeaturePrint",
+        "SNTimeRange",
+    ] {
+        assert!(coverage.contains(symbol), "COVERAGE.md is missing {symbol}");
+    }
 }

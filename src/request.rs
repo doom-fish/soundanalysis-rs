@@ -15,7 +15,10 @@ mod private {
 }
 
 /// Marker trait for Rust types that model Apple's `SNRequest` protocol.
-pub trait AnalysisRequest: private::Sealed {}
+pub trait SNRequest: private::Sealed {}
+
+/// Backwards-compatible alias for [`SNRequest`].
+pub trait AnalysisRequest: SNRequest {}
 
 /// Apple's built-in sound classifier identifiers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -38,6 +41,7 @@ pub struct ClassifySoundRequest {
 }
 
 impl private::Sealed for ClassifySoundRequest {}
+impl SNRequest for ClassifySoundRequest {}
 impl AnalysisRequest for ClassifySoundRequest {}
 
 impl Clone for ClassifySoundRequest {
@@ -54,6 +58,12 @@ impl Drop for ClassifySoundRequest {
         unsafe { ffi::sa_request_release(self.ptr.as_ptr()) };
     }
 }
+
+/// Apple-style alias for [`ClassifySoundRequest`].
+pub type SNClassifySoundRequest = ClassifySoundRequest;
+
+/// Apple-style alias for [`ClassifierIdentifier`].
+pub type SNClassifierIdentifier = ClassifierIdentifier;
 
 impl ClassifySoundRequest {
     /// Create a request for Apple's built-in `version1` classifier.
