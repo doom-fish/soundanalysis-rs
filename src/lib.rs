@@ -25,7 +25,10 @@ pub mod live;
 pub use error::SAError;
 
 #[cfg(feature = "analyze_file")]
-pub use classifier::{classify_file, known_classifications, Classification, ClassificationResult};
+pub use classifier::{
+    classify_file, classify_file_with_model, known_classifications, Classification,
+    ClassificationResult,
+};
 
 #[cfg(feature = "stream")]
 pub use live::{start_live_classification, LiveClassification, StreamUpdate};
@@ -35,7 +38,8 @@ pub mod prelude {
     pub use crate::error::SAError;
     #[cfg(feature = "analyze_file")]
     pub use crate::classifier::{
-        classify_file, known_classifications, Classification, ClassificationResult,
+        classify_file, classify_file_with_model, known_classifications, Classification,
+        ClassificationResult,
     };
     #[cfg(feature = "stream")]
     pub use crate::live::{start_live_classification, LiveClassification, StreamUpdate};

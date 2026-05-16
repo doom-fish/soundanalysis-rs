@@ -35,6 +35,14 @@ extern "C" {
     ) -> i32;
     pub fn sa_classification_results_free(array: *mut c_void, count: usize);
 
+    pub fn sa_classify_file_with_model(
+        audio_path: *const c_char,
+        model_path: *const c_char,
+        out_array: *mut *mut c_void,
+        out_count: *mut usize,
+        out_error_message: *mut *mut c_char,
+    ) -> i32;
+
     pub fn sa_stream_start(
         callback: StreamCallback,
         user_info: *mut c_void,

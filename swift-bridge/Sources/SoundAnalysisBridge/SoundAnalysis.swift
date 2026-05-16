@@ -320,3 +320,98 @@ public func sa_stream_stop(_ handle: UnsafeMutableRawPointer?) {
     session?.stop()
     Unmanaged<SAStreamSession>.fromOpaque(handle).release()
 }
+
+// MARK: - Custom CoreML classifier (v0.3)
+
+import CoreML
+
+@_cdecl("sa_classify_file_with_model")
+public func sa_classify_file_with_model(
+    _ audioPath: UnsafePointer<CChar>,
+    _ modelPath: UnsafePointer<CChar>,
+    _ outArray: UnsafeMutablePointer<UnsafeMutableRawPointer?>,
+    _ outCount: UnsafeMutablePointer<Int>,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+) -> Int32 {
+    let audio = String(cString: audioPath)
+    let modelStr = String(cString: modelPath)
+    let audioURL = URL(fileURLWithPath: audio)
+    let modelURL = URL(fileURLWithPath: modelStr)
+
+    let mlModel: MLModel
+    do {
+        mlModel = try MLModel(contentsOf: modelURL)
+    } catch {
+        outErrorMessage?.pointee = ffiString("MLModel load failed: \(error.localizedDescription)")
+        outArray.pointee = nil; outCount.pointee = 0
+        return SA_REQUEST_CREATE_FAILED
+    }
+
+    let analyzer: SNAudioFileAnalyzer
+    do {
+        analyzer = try SNAudioFileAnalyzer(url: audioURL)
+    } catch {
+        outErrorMessage?.pointee = ffiString("SNAudioFileAnalyzer init: \(error.localizedDescription)")
+        outArray.pointee = nil; outCount.pointee = 0
+        return SA_AUDIO_LOAD_FAILED
+    }
+
+    let request: SNClassifySoundRequest
+    do {
+        request = try SNClassifySoundRequest(mlModel: mlModel)
+    } catch {
+        outErrorMessage?.pointee = ffiString("SNClassifySoundRequest custom: \(error.localizedDescription)")
+        outArray.pointee = nil; outCount.pointee = 0
+        return SA_REQUEST_CREATE_FAILED
+    }
+
+    final class Collector: NSObject, SNResultsObserving {
+        var rows: [SAClassificationResultRaw] = []
+        var failure: String? = nil
+        func request(_ request: SNRequest, didProduce result: SNResult) {
+            guard let classification = result as? SNClassificationResult else { return }
+            let range = classification.timeRange
+            let timeStart = CMTimeGetSeconds(range.start)
+            let timeDur = CMTimeGetSeconds(range.duration)
+            let n = classification.classifications.count
+            let buf = UnsafeMutablePointer<SAClassificationRaw>.allocate(capacity: n)
+            for (i, c) in classification.classifications.enumerated() {
+                buf.advanced(by: i).initialize(to: SAClassificationRaw(
+                    identifier: strdup(c.identifier),
+                    confidence: c.confidence))
+            }
+            rows.append(SAClassificationResultRaw(
+                time_start: timeStart,
+                time_duration: timeDur,
+                classifications: buf,
+                classification_count: n))
+        }
+        func request(_ request: SNRequest, didFailWithError error: Error) {
+            failure = error.localizedDescription
+        }
+    }
+    let observer = Collector()
+    do {
+        try analyzer.add(request, withObserver: observer)
+    } catch {
+        outErrorMessage?.pointee = ffiString("addRequest failed: \(error.localizedDescription)")
+        outArray.pointee = nil; outCount.pointee = 0
+        return SA_REQUEST_CREATE_FAILED
+    }
+    analyzer.analyze()
+    if let f = observer.failure {
+        outErrorMessage?.pointee = ffiString("analyze failed: \(f)")
+        outArray.pointee = nil; outCount.pointee = 0
+        return SA_ANALYSIS_FAILED
+    }
+
+    let count = observer.rows.count
+    if count == 0 { outArray.pointee = nil; outCount.pointee = 0; return SA_OK }
+    let buf = UnsafeMutablePointer<SAClassificationResultRaw>.allocate(capacity: count)
+    for (i, r) in observer.rows.enumerated() {
+        buf.advanced(by: i).initialize(to: r)
+    }
+    outArray.pointee = UnsafeMutableRawPointer(buf)
+    outCount.pointee = count
+    return SA_OK
+}

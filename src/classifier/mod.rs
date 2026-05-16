@@ -119,6 +119,78 @@ pub fn classify_file(path: impl AsRef<Path>) -> Result<Vec<ClassificationResult>
     Ok(out)
 }
 
+/// Classify the audio at `audio_path` against a custom Core ML
+/// model file (`.mlmodel` or `.mlpackage`). Useful for shipping a
+/// domain-specific sound classifier trained with Create ML.
+///
+/// # Errors
+///
+/// Returns [`SAError`] if either file can't be loaded or
+/// `SNAudioFileAnalyzer` fails.
+pub fn classify_file_with_model(
+    audio_path: impl AsRef<Path>,
+    model_path: impl AsRef<Path>,
+) -> Result<Vec<ClassificationResult>, SAError> {
+    let a = audio_path
+        .as_ref()
+        .to_str()
+        .ok_or_else(|| SAError::InvalidArgument("non-UTF-8 audio path".into()))?;
+    let m = model_path
+        .as_ref()
+        .to_str()
+        .ok_or_else(|| SAError::InvalidArgument("non-UTF-8 model path".into()))?;
+    let a_c = CString::new(a)
+        .map_err(|e| SAError::InvalidArgument(format!("audio path NUL: {e}")))?;
+    let m_c = CString::new(m)
+        .map_err(|e| SAError::InvalidArgument(format!("model path NUL: {e}")))?;
+
+    let mut array: *mut c_void = ptr::null_mut();
+    let mut count: usize = 0;
+    let mut err_msg: *mut c_char = ptr::null_mut();
+    let status = unsafe {
+        ffi::sa_classify_file_with_model(
+            a_c.as_ptr(),
+            m_c.as_ptr(),
+            &mut array,
+            &mut count,
+            &mut err_msg,
+        )
+    };
+    if status != ffi::status::OK {
+        return Err(unsafe { from_swift(status, err_msg) });
+    }
+    if array.is_null() || count == 0 {
+        return Ok(Vec::new());
+    }
+    let typed = array.cast::<ffi::ClassificationResultRaw>();
+    let mut out = Vec::with_capacity(count);
+    for i in 0..count {
+        let raw = unsafe { &*typed.add(i) };
+        let mut classifications = Vec::with_capacity(raw.classification_count);
+        for j in 0..raw.classification_count {
+            let craw = unsafe { &*raw.classifications.add(j) };
+            let identifier = if craw.identifier.is_null() {
+                String::new()
+            } else {
+                unsafe { core::ffi::CStr::from_ptr(craw.identifier) }
+                    .to_string_lossy()
+                    .into_owned()
+            };
+            classifications.push(Classification {
+                identifier,
+                confidence: craw.confidence,
+            });
+        }
+        out.push(ClassificationResult {
+            time_start: raw.time_start,
+            time_duration: raw.time_duration,
+            classifications,
+        });
+    }
+    unsafe { ffi::sa_classification_results_free(array, count) };
+    Ok(out)
+}
+
 /// All sound categories that Apple's built-in `version1` classifier can
 /// recognise (typically 300+ items: `"speech"`, `"music"`, `"applause"`,
 /// `"dog_bark"`, `"engine_idling"`, `"wind"`, …).
