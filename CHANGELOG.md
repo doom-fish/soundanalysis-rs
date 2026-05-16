@@ -1,5 +1,24 @@
 # Changelog
 
+## [v0.4.0]
+
+### Added
+
+- Full `SoundAnalysis.framework` coverage for the public SDK surface.
+- `ClassifySoundRequest`, `ClassifierIdentifier`, `TimeDurationConstraint`, and `TimeRange` wrappers for `SNClassifySoundRequest` + `SNTimeDurationConstraint`.
+- `AudioFileAnalyzer` exposing request add/remove/remove-all, synchronous analysis, completion-handler analysis, and cancellation.
+- `AudioStreamAnalyzer`, `AudioStreamFormat`, `PcmSampleFormat`, and `PcmBuffer` for raw PCM buffer analysis with `SNAudioStreamAnalyzer`.
+- `ResultsObserver` + `ResultsObserverFns` to model `SNResultsObserving` from Rust.
+- `ClassificationResult::classification_for_identifier()`.
+- `03_smoke_surface` example covering the new low-level request, analyzer, and PCM-streaming APIs.
+- Expanded API coverage tests for `SNAudioStreamAnalyzer` and `SNTimeDurationConstraint`.
+
+### Changed
+
+- `known_classifications()` now goes through the shared request wrapper surface.
+- Example artifacts are written under `target/example-artifacts/` instead of `/tmp`.
+- README roadmap now reflects complete framework coverage.
+
 ## [0.1.0] - Initial release
 
 ### Added

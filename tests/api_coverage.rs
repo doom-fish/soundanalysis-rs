@@ -1,13 +1,9 @@
 //! API-surface coverage harness for `soundanalysis`.
-//!
-//! `SoundAnalysis` is an Obj-C framework with proper headers under
-//! `SoundAnalysis.framework/Headers/`. Mirrors the family pattern
-//! (header-based, Obj-C `@interface`).
 
 #![allow(clippy::cast_precision_loss, clippy::iter_on_single_items)]
 
-use std::collections::BTreeSet;
-use std::path::PathBuf;
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn sdk_root() -> PathBuf {
@@ -19,14 +15,43 @@ fn sdk_root() -> PathBuf {
     PathBuf::from(String::from_utf8(out.stdout).unwrap().trim().to_string())
 }
 
-fn read(path: &PathBuf) -> String {
+fn read(path: &Path) -> String {
     std::fs::read_to_string(path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
 }
 
-fn read_bridge() -> String {
-    read(&PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
-        "swift-bridge/Sources/SoundAnalysisBridge/SoundAnalysis.swift",
-    ))
+fn collect_files(dir: &Path, extension: &str, files: &mut Vec<PathBuf>) {
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let entry = entry.unwrap();
+        let path = entry.path();
+        if path.is_dir() {
+            collect_files(&path, extension, files);
+        } else if path.extension().and_then(|ext| ext.to_str()) == Some(extension) {
+            files.push(path);
+        }
+    }
+}
+
+fn read_surface() -> String {
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+
+    let mut swift_files = Vec::new();
+    collect_files(
+        &manifest.join("swift-bridge/Sources/SoundAnalysisBridge"),
+        "swift",
+        &mut swift_files,
+    );
+    swift_files.sort();
+
+    let mut rust_files = Vec::new();
+    collect_files(&manifest.join("src"), "rs", &mut rust_files);
+    rust_files.sort();
+
+    swift_files
+        .into_iter()
+        .chain(rust_files)
+        .map(|path| read(&path))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn read_header(name: &str) -> String {
@@ -63,57 +88,64 @@ fn extract_member_surface(body: &str) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     let method_re =
         regex_lite::Regex::new(r"(?m)^\s*[+\-]\s*\([^\)]*\)\s*([A-Za-z_][A-Za-z0-9_]*)").unwrap();
-    for c in method_re.captures_iter(body) {
-        out.insert(c[1].to_string());
+    for capture in method_re.captures_iter(body) {
+        out.insert(capture[1].to_string());
     }
     let prop_re = regex_lite::Regex::new(
         r"(?m)^\s*@property\s*(?:\([^\)]*\))?\s*[^;]*?\b([A-Za-z_][A-Za-z0-9_]*)\s*(?:NS_|API_|;)",
     )
     .unwrap();
-    for c in prop_re.captures_iter(body) {
-        out.insert(c[1].to_string());
+    for capture in prop_re.captures_iter(body) {
+        out.insert(capture[1].to_string());
     }
     out
 }
 
-fn references_in_bridge(symbols: &BTreeSet<String>) -> BTreeSet<String> {
-    let bridge = read_bridge();
-    let aliases = swift_aliases();
+fn aliases() -> BTreeMap<&'static str, Vec<&'static str>> {
+    BTreeMap::from([
+        ("initWithURL", vec!["(url:", "AudioFileAnalyzer::new"]),
+        ("initWithFormat", vec!["(format:", "AudioStreamAnalyzer::new"]),
+        ("initWithMLModel", vec!["(mlModel:", "with_model_file("]),
+        ("initWithClassifierIdentifier", vec!["(classifierIdentifier:", "with_classifier_identifier("]),
+        ("addRequest", vec![".add(", "add_request("]),
+        ("removeRequest", vec![".remove(", "remove_request("]),
+        ("removeAllRequests", vec!["removeAllRequests(", "remove_all_requests("]),
+        ("analyzeWithCompletionHandler", vec!["analyze_with_completion_handler(", "analyze {"]),
+        ("cancelAnalysis", vec!["cancelAnalysis(", "cancel_analysis("]),
+        ("analyzeAudioBuffer", vec!["atAudioFramePosition", "analyze_audio_buffer("]),
+        ("classificationForIdentifier", vec!["classification_for_identifier("]),
+        ("type", vec!["constraint_type(", ".enumeratedDurations(", ".durationRange("]),
+        ("enumeratedDurations", vec!["enumerated_durations(", ".enumeratedDurations("]),
+        ("durationRange", vec!["duration_range(", ".durationRange("]),
+        ("initWithEnumeratedDurations", vec!["TimeDurationConstraint::enumerated(", ".enumeratedDurations("]),
+        ("initWithDurationRange", vec!["TimeDurationConstraint::range(", ".durationRange("]),
+        ("requestDidComplete", vec!["requestDidComplete(", "did_complete("]),
+    ])
+}
+
+fn references_in_surface(symbols: &BTreeSet<String>) -> BTreeSet<String> {
+    let surface = read_surface();
+    let aliases = aliases();
     symbols
         .iter()
         .filter(|name| {
             let pattern = format!(r"\b{}\b", regex_lite::escape(name));
-            if regex_lite::Regex::new(&pattern).unwrap().is_match(&bridge) {
+            if regex_lite::Regex::new(&pattern).unwrap().is_match(&surface) {
                 return true;
             }
-            if let Some(form) = aliases.get(name.as_str()) {
-                return bridge.contains(form);
-            }
-            false
+            aliases
+                .get(name.as_str())
+                .is_some_and(|forms| forms.iter().any(|form| surface.contains(form)))
         })
         .cloned()
         .collect()
-}
-
-fn swift_aliases() -> std::collections::BTreeMap<&'static str, &'static str> {
-    [
-        ("initWithURL", "(url:"),
-        ("initWithFormat", "(format:"),
-        ("initWithMLModel", "(mlModel:"),
-        ("initWithClassifierIdentifier", "(classifierIdentifier:"),
-        ("addRequest", "analyzer.add("),
-        ("removeRequest", "removeRequest("),
-        ("removeAllRequests", "removeAllRequests("),
-    ]
-    .into_iter()
-    .collect()
 }
 
 fn report(name: &str, apple: &BTreeSet<String>, ours: &BTreeSet<String>, omitted: &BTreeSet<String>) {
     let wrapped: BTreeSet<&String> = apple.intersection(ours).collect();
     let missing: BTreeSet<&String> = apple
         .difference(ours)
-        .filter(|s| !omitted.contains(*s))
+        .filter(|symbol| !omitted.contains(*symbol))
         .collect();
     let coverable = wrapped.len() + missing.len();
     let pct = if coverable == 0 {
@@ -129,8 +161,8 @@ fn report(name: &str, apple: &BTreeSet<String>, ours: &BTreeSet<String>, omitted
         missing.len(),
     );
     if !missing.is_empty() {
-        for s in &missing {
-            println!("  - {s}");
+        for symbol in &missing {
+            println!("  - {symbol}");
         }
     }
     assert!(pct >= 100.0, "{name}: {pct:.1}%");
@@ -140,27 +172,13 @@ fn omitted_set<const N: usize>(items: [&str; N]) -> BTreeSet<String> {
     items.into_iter().map(String::from).collect()
 }
 
-// ---- Tests ----
-
 #[test]
 fn sn_classify_sound_request_coverage() {
     let header = read_header("SNClassifySoundRequest");
     let body = extract_interface(&header, "SNClassifySoundRequest");
     let apple = extract_member_surface(&body);
-    let ours = references_in_bridge(&apple);
-    let omitted = omitted_set([
-        // Per-request tunables — v0.2 builder will surface them.
-        "overlapFactor",
-        "windowDuration",
-        "windowDurationConstraint",
-        // Custom-MLModel attachment — v0.2.
-        "initWithMLModel",
-        // Bridge uses the .version1 enum case directly via Swift, not via
-        // the literal Obj-C selector text.
-        "initWithClassifierIdentifier",
-        // `+ new` is `NS_UNAVAILABLE` on every SoundAnalysis class.
-        "new",
-    ]);
+    let ours = references_in_surface(&apple);
+    let omitted = omitted_set(["new"]);
     report("SNClassifySoundRequest", &apple, &ours, &omitted);
 }
 
@@ -169,17 +187,19 @@ fn sn_audio_file_analyzer_coverage() {
     let header = read_header("SNAnalyzer");
     let body = extract_interface(&header, "SNAudioFileAnalyzer");
     let apple = extract_member_surface(&body);
-    let ours = references_in_bridge(&apple);
-    let omitted = omitted_set([
-        // Removal API not used in v0.1 (one-shot analysis per call).
-        "removeRequest",
-        "removeAllRequests",
-        // Async + cancellable variants — v0.2 (current bridge uses the
-        // synchronous `analyze()` form).
-        "analyzeWithCompletionHandler",
-        "cancelAnalysis",
-    ]);
+    let ours = references_in_surface(&apple);
+    let omitted = omitted_set([]);
     report("SNAudioFileAnalyzer", &apple, &ours, &omitted);
+}
+
+#[test]
+fn sn_audio_stream_analyzer_coverage() {
+    let header = read_header("SNAnalyzer");
+    let body = extract_interface(&header, "SNAudioStreamAnalyzer");
+    let apple = extract_member_surface(&body);
+    let ours = references_in_surface(&apple);
+    let omitted = omitted_set([]);
+    report("SNAudioStreamAnalyzer", &apple, &ours, &omitted);
 }
 
 #[test]
@@ -187,13 +207,8 @@ fn sn_classification_result_coverage() {
     let header = read_header("SNClassificationResult");
     let body = extract_interface(&header, "SNClassificationResult");
     let apple = extract_member_surface(&body);
-    let ours = references_in_bridge(&apple);
-    let omitted = omitted_set([
-        // Per-identifier random-access lookup; v0.1 returns the eager Vec
-        // of all classifications and lets Rust callers filter/find.
-        "classificationForIdentifier",
-        "new",
-    ]);
+    let ours = references_in_surface(&apple);
+    let omitted = omitted_set(["new"]);
     report("SNClassificationResult", &apple, &ours, &omitted);
 }
 
@@ -202,23 +217,27 @@ fn sn_classification_coverage() {
     let header = read_header("SNClassificationResult");
     let body = extract_interface(&header, "SNClassification");
     let apple = extract_member_surface(&body);
-    let ours = references_in_bridge(&apple);
+    let ours = references_in_surface(&apple);
     let omitted = omitted_set(["new"]);
     report("SNClassification", &apple, &ours, &omitted);
 }
 
 #[test]
+fn sn_time_duration_constraint_coverage() {
+    let header = read_header("SNTimeDurationConstraint");
+    let body = extract_interface(&header, "SNTimeDurationConstraint");
+    let apple = extract_member_surface(&body);
+    let ours = references_in_surface(&apple);
+    let omitted = omitted_set(["new"]);
+    report("SNTimeDurationConstraint", &apple, &ours, &omitted);
+}
+
+#[test]
 fn sn_results_observing_coverage() {
-    // Protocol — verify our CollectingObserver implements the full
-    // delegate surface the analyzer expects.
     let header = read_header("SNResult");
     let body = extract_protocol(&header, "SNResultsObserving");
     let apple = extract_member_surface(&body);
-    let ours = references_in_bridge(&apple);
-    let omitted = omitted_set([
-        // Bridge swift_aliases() handles the renamed selector
-        // `request:didProduceResult:` -> `request(_:didProduce:)`.
-        "request",
-    ]);
+    let ours = references_in_surface(&apple);
+    let omitted = omitted_set([]);
     report("SNResultsObserving", &apple, &ours, &omitted);
 }

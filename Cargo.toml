@@ -1,6 +1,6 @@
 [package]
 name = "soundanalysis"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/doom-fish/soundanalysis-rs"
@@ -60,6 +60,10 @@ required-features = ["analyze_file"]
 [[example]]
 name = "02_known_classes"
 required-features = ["analyze_file"]
+
+[[example]]
+name = "03_smoke_surface"
+required-features = ["stream"]
 
 [profile.release]
 debug = "full"

@@ -1,8 +1,8 @@
 # soundanalysis
 
-Safe Rust bindings for Apple's [SoundAnalysis](https://developer.apple.com/documentation/soundanalysis) framework on macOS — on-device sound classification using Apple's built-in `version1` model (~300 everyday sound categories: `"speech"`, `"music"`, `"applause"`, `"dog_bark"`, `"engine_idling"`, `"wind"`, …).
+Safe Rust bindings for Apple's [SoundAnalysis](https://developer.apple.com/documentation/soundanalysis) framework on macOS.
 
-> **Status:** experimental. v0.1 ships file-based classification with Apple's built-in `SNClassifierIdentifierVersion1`. Live audio-buffer streaming via `SNAudioStreamAnalyzer` and custom `MLModel` loading land in v0.2.
+> **Status:** v0.4 exposes the full public `SoundAnalysis.framework` surface: `SNClassifySoundRequest`, `SNAudioFileAnalyzer`, `SNAudioStreamAnalyzer`, `SNClassificationResult`, `SNResultsObserving`, `SNTimeDurationConstraint`, built-in `version1` classification, custom Core ML models, live microphone convenience, and raw PCM buffer analysis.
 
 ## Quick start
 
@@ -10,18 +10,58 @@ Safe Rust bindings for Apple's [SoundAnalysis](https://developer.apple.com/docum
 use soundanalysis::prelude::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let results = classify_file("/tmp/utterance.aiff")?;
-    for r in &results {
-        if let Some(top) = r.top() {
-            println!("[{:.2}s+{:.2}s] {} ({:.2})",
-                r.time_start, r.time_duration, top.identifier, top.confidence);
+    let results = classify_file("target/utterance.aiff")?;
+    for result in &results {
+        if let Some(top) = result.top() {
+            println!(
+                "[{:.2}s+{:.2}s] {} ({:.2})",
+                result.time_start,
+                result.time_duration,
+                top.identifier,
+                top.confidence
+            );
         }
     }
-    // Inspect the full label set:
+
     println!("known classes: {}", known_classifications()?.len());
     Ok(())
 }
 ```
+
+## Low-level framework surface
+
+```rust,no_run
+use soundanalysis::prelude::*;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut request = ClassifySoundRequest::version1()?;
+    request.set_overlap_factor(0.25)?;
+
+    if let TimeDurationConstraint::Range(range) = request.window_duration_constraint()? {
+        request.set_window_duration(range.start_seconds.max(0.5))?;
+    }
+
+    let mut analyzer = AudioFileAnalyzer::new("target/utterance.aiff")?;
+    analyzer.add_request(
+        &request,
+        ResultsObserverFns::new(|_request, result| {
+            if let Some(top) = result.top() {
+                println!("{} {:.2}", top.identifier, top.confidence);
+            }
+        }),
+    )?;
+    analyzer.analyze()?;
+    Ok(())
+}
+```
+
+For real-time use, `AudioStreamAnalyzer` accepts interleaved or planar PCM buffers (`f32`, `f64`, `i16`, `i32`) and `start_live_classification()` keeps the high-level microphone convenience API.
+
+## Examples
+
+- `cargo run --example 01_classify_file`
+- `cargo run --example 02_known_classes`
+- `cargo run --all-features --example 03_smoke_surface`
 
 ## Pipeline composition
 
@@ -37,19 +77,21 @@ screencapturekit-rs ──► system audio ──► soundanalysis ──► eve
                                                              ▼
                                                     foundation-models
                                                     ("summarise the meeting,
-                                                      flag the cough at 3:42")
+                                                     flag the cough at 3:42")
 ```
 
 Pairs naturally with [`screencapturekit`](https://github.com/doom-fish/screencapturekit-rs) (system audio capture) and [`speech`](https://github.com/doom-fish/speech-rs) for full audio-understanding pipelines.
 
 ## Roadmap
 
-- [x] File-based classification (`SNAudioFileAnalyzer` + `SNClassifySoundRequest` + built-in `version1` classifier)
-- [x] `known_classifications()` to inspect the label set
-- [ ] Live audio-buffer streaming (`SNAudioStreamAnalyzer`)
-- [ ] Custom `MLModel` loading (user-trained classifiers)
-- [ ] Per-window confidence thresholding builder
-- [ ] Async API
+- [x] File-based classification (`SNAudioFileAnalyzer`)
+- [x] Request tuning (`overlapFactor`, `windowDuration`, `windowDurationConstraint`)
+- [x] Built-in classifier metadata (`knownClassifications`, `ClassifierIdentifier::Version1`)
+- [x] Custom Core ML request creation (`SNClassifySoundRequest(mlModel:)`)
+- [x] File analyzer request management (`add/remove/removeAll`, sync + completion-handler analysis, cancel)
+- [x] Stream analyzer request management (`add/remove/removeAll`, raw PCM `analyzeAudioBuffer`, `completeAnalysis`)
+- [x] Results observing callbacks and `ClassificationResult::classification_for_identifier`
+- [x] High-level microphone convenience (`start_live_classification`)
 
 ## License
 

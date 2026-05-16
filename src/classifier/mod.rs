@@ -1,5 +1,4 @@
-//! File-based sound classification — wraps `SNAudioFileAnalyzer` +
-//! `SNClassifySoundRequest` with Apple's built-in `version1` classifier.
+//! File-based sound classification helpers.
 
 use core::ffi::{c_char, c_void};
 use core::ptr;
@@ -8,13 +7,13 @@ use std::path::Path;
 
 use crate::error::{from_swift, SAError};
 use crate::ffi;
+use crate::request::ClassifySoundRequest;
 
 /// One ranked classification at one point in time.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Classification {
     /// Apple's category identifier (e.g. `"speech"`, `"music"`,
-    /// `"applause"`, `"dog_bark"`). See [`known_classifications`] for the
-    /// full set returned by `version1`.
+    /// `"applause"`, `"dog_bark"`).
     pub identifier: String,
     /// Confidence in `0.0..=1.0`. Higher is more confident.
     pub confidence: f64,
@@ -36,9 +35,19 @@ impl ClassificationResult {
     /// Convenience: the highest-confidence classification in this window.
     #[must_use]
     pub fn top(&self) -> Option<&Classification> {
+        self.classifications.iter().max_by(|a, b| {
+            a.confidence
+                .partial_cmp(&b.confidence)
+                .unwrap_or(core::cmp::Ordering::Equal)
+        })
+    }
+
+    /// Find a particular classification by identifier.
+    #[must_use]
+    pub fn classification_for_identifier(&self, identifier: &str) -> Option<&Classification> {
         self.classifications
             .iter()
-            .max_by(|a, b| a.confidence.partial_cmp(&b.confidence).unwrap_or(core::cmp::Ordering::Equal))
+            .find(|classification| classification.identifier == identifier)
     }
 }
 
@@ -61,7 +70,7 @@ impl ClassificationResult {
 /// ```rust,no_run
 /// use soundanalysis::classify_file;
 ///
-/// let results = classify_file("/tmp/cough.wav").unwrap();
+/// let results = classify_file("target/cough.wav").unwrap();
 /// for r in &results {
 ///     if let Some(top) = r.top() {
 ///         println!("{:.2}s: {} ({:.2})", r.time_start, top.identifier, top.confidence);
@@ -119,14 +128,10 @@ pub fn classify_file(path: impl AsRef<Path>) -> Result<Vec<ClassificationResult>
     Ok(out)
 }
 
-/// Classify the audio at `audio_path` against a custom Core ML
-/// model file (`.mlmodel` or `.mlpackage`). Useful for shipping a
-/// domain-specific sound classifier trained with Create ML.
+/// Classify the audio at `audio_path` against a custom Core ML sound model.
 ///
-/// # Errors
-///
-/// Returns [`SAError`] if either file can't be loaded or
-/// `SNAudioFileAnalyzer` fails.
+/// The model path should point at a compiled `.mlmodelc` directory or a
+/// packaged `.mlpackage` model.
 pub fn classify_file_with_model(
     audio_path: impl AsRef<Path>,
     model_path: impl AsRef<Path>,
@@ -192,36 +197,7 @@ pub fn classify_file_with_model(
 }
 
 /// All sound categories that Apple's built-in `version1` classifier can
-/// recognise (typically 300+ items: `"speech"`, `"music"`, `"applause"`,
-/// `"dog_bark"`, `"engine_idling"`, `"wind"`, …).
-///
-/// # Errors
-///
-/// Returns [`SAError::RequestCreateFailed`] if the built-in classifier
-/// can't be initialised.
+/// recognise.
 pub fn known_classifications() -> Result<Vec<String>, SAError> {
-    let mut array: *mut *mut c_char = ptr::null_mut();
-    let mut count: usize = 0;
-    let status = unsafe { ffi::sa_known_classifications(&mut array, &mut count) };
-    if status != ffi::status::OK {
-        return Err(SAError::RequestCreateFailed(
-            "built-in classifier unavailable".into(),
-        ));
-    }
-    if array.is_null() || count == 0 {
-        return Ok(Vec::new());
-    }
-    let mut out = Vec::with_capacity(count);
-    for i in 0..count {
-        let p = unsafe { *array.add(i) };
-        if p.is_null() {
-            continue;
-        }
-        let s = unsafe { core::ffi::CStr::from_ptr(p) }
-            .to_string_lossy()
-            .into_owned();
-        out.push(s);
-    }
-    unsafe { ffi::sa_known_classifications_free(array, count) };
-    Ok(out)
+    ClassifySoundRequest::version1()?.known_classifications()
 }

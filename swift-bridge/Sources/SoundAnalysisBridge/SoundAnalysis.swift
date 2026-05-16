@@ -1,57 +1,10 @@
-// SoundAnalysis Bridge
-//
-// @_cdecl wrappers around Apple's SoundAnalysis framework so Rust can
-// classify sounds in audio files using Apple's built-in classifier
-// (`SNClassifierIdentifierVersion1` — 200+ everyday sounds).
-
+import AVFoundation
+import CoreML
+import CoreMedia
 import Foundation
 import SoundAnalysis
-import AVFoundation
-import CoreMedia
 
-// ----- Status codes (match src/ffi/mod.rs::status) -----
-
-private let SA_OK: Int32 = 0
-private let SA_INVALID_ARGUMENT: Int32 = -1
-private let SA_AUDIO_LOAD_FAILED: Int32 = -2
-private let SA_REQUEST_CREATE_FAILED: Int32 = -3
-private let SA_ANALYSIS_FAILED: Int32 = -4
-private let SA_UNKNOWN: Int32 = -99
-
-// MARK: - String helpers
-
-private func ffiString(_ s: String) -> UnsafeMutablePointer<CChar>? {
-    return strdup(s)
-}
-
-@_cdecl("sa_string_free")
-public func sa_string_free(_ s: UnsafeMutablePointer<CChar>?) {
-    guard let s = s else { return }
-    free(s)
-}
-
-// MARK: - Layout-compatible structs (mirror Rust ffi/mod.rs)
-
-public struct SAClassificationRaw {
-    /// NUL-terminated category identifier, e.g. "speech", "music",
-    /// "applause", "dog_bark". Caller frees via `sa_classification_results_free`.
-    public var identifier: UnsafeMutablePointer<CChar>?
-    public var confidence: Double
-}
-
-public struct SAClassificationResultRaw {
-    /// Time range start (seconds since file start).
-    public var time_start: Double
-    /// Time range duration (seconds).
-    public var time_duration: Double
-    /// Pointer to a flat C array of `SAClassificationRaw` (length =
-    /// `classification_count`). Caller frees via the parent results
-    /// `sa_classification_results_free`.
-    public var classifications: UnsafeMutablePointer<SAClassificationRaw>?
-    public var classification_count: Int
-}
-
-// MARK: - Built-in classifier metadata
+// MARK: - Known classifications
 
 @_cdecl("sa_known_classifications")
 public func sa_known_classifications(
@@ -59,21 +12,8 @@ public func sa_known_classifications(
     _ outCount: UnsafeMutablePointer<Int>
 ) -> Int32 {
     do {
-        let request = try SNClassifySoundRequest(classifierIdentifier: .version1)
-        let labels = request.knownClassifications
-        if labels.isEmpty {
-            outArray.pointee = nil
-            outCount.pointee = 0
-            return SA_OK
-        }
-        let buffer = UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>.allocate(
-            capacity: labels.count
-        )
-        for (i, l) in labels.enumerated() {
-            buffer.advanced(by: i).initialize(to: ffiString(l))
-        }
-        outArray.pointee = buffer
-        outCount.pointee = labels.count
+        let request = try builtInRequest(classifier: SA_CLASSIFIER_IDENTIFIER_VERSION1)
+        copyStrings(request.knownClassifications, outArray: outArray, outCount: outCount)
         return SA_OK
     } catch {
         return SA_REQUEST_CREATE_FAILED
@@ -85,37 +25,429 @@ public func sa_known_classifications_free(
     _ array: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?,
     _ count: Int
 ) {
-    guard let array = array else { return }
-    for i in 0..<count {
-        if let p = array.advanced(by: i).pointee { free(p) }
+    guard let array else { return }
+    for index in 0..<count {
+        if let string = array.advanced(by: index).pointee {
+            free(string)
+        }
     }
     array.deallocate()
 }
 
-// MARK: - Result observer
+// MARK: - Request surface
+
+@_cdecl("sa_request_create_classifier")
+public func sa_request_create_classifier(
+    _ classifier: Int32,
+    _ outRequest: UnsafeMutablePointer<UnsafeMutableRawPointer?>,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+) -> Int32 {
+    outRequest.pointee = nil
+    do {
+        let request = try builtInRequest(classifier: classifier)
+        outRequest.pointee = saRetain(request)
+        return SA_OK
+    } catch {
+        return fail(outErrorMessage, defaultStatus: SA_REQUEST_CREATE_FAILED, error: error)
+    }
+}
+
+@_cdecl("sa_request_create_model")
+public func sa_request_create_model(
+    _ modelPath: UnsafePointer<CChar>,
+    _ outRequest: UnsafeMutablePointer<UnsafeMutableRawPointer?>,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+) -> Int32 {
+    outRequest.pointee = nil
+    let modelURL = URL(fileURLWithPath: String(cString: modelPath))
+    do {
+        let model = try MLModel(contentsOf: modelURL)
+        let request = try SNClassifySoundRequest(mlModel: model)
+        outRequest.pointee = saRetain(request)
+        return SA_OK
+    } catch {
+        return fail(outErrorMessage, defaultStatus: SA_REQUEST_CREATE_FAILED, error: error)
+    }
+}
+
+@_cdecl("sa_request_retain")
+public func sa_request_retain(_ request: UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer? {
+    guard let request else { return nil }
+    let object: SNClassifySoundRequest = saBorrow(request, as: SNClassifySoundRequest.self)
+    return saRetain(object)
+}
+
+@_cdecl("sa_request_release")
+public func sa_request_release(_ request: UnsafeMutableRawPointer?) {
+    guard let request else { return }
+    saRelease(request, as: SNClassifySoundRequest.self)
+}
+
+@_cdecl("sa_request_get_overlap_factor")
+public func sa_request_get_overlap_factor(_ request: UnsafeMutableRawPointer?) -> Double {
+    guard let request else { return 0 }
+    let object: SNClassifySoundRequest = saBorrow(request, as: SNClassifySoundRequest.self)
+    return object.overlapFactor
+}
+
+@_cdecl("sa_request_set_overlap_factor")
+public func sa_request_set_overlap_factor(
+    _ request: UnsafeMutableRawPointer?,
+    _ overlapFactor: Double,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+) -> Int32 {
+    guard let request else {
+        return fail(outErrorMessage, status: SA_INVALID_ARGUMENT, message: "null SNClassifySoundRequest")
+    }
+    guard overlapFactor >= 0, overlapFactor < 1 else {
+        return fail(outErrorMessage, status: SA_INVALID_ARGUMENT, message: "overlapFactor must be in 0.0..<1.0")
+    }
+    let object: SNClassifySoundRequest = saBorrow(request, as: SNClassifySoundRequest.self)
+    object.overlapFactor = overlapFactor
+    return SA_OK
+}
+
+@_cdecl("sa_request_get_window_duration")
+public func sa_request_get_window_duration(_ request: UnsafeMutableRawPointer?) -> Double {
+    guard let request else { return 0 }
+    let object: SNClassifySoundRequest = saBorrow(request, as: SNClassifySoundRequest.self)
+    return CMTimeGetSeconds(object.windowDuration)
+}
+
+@_cdecl("sa_request_set_window_duration")
+public func sa_request_set_window_duration(
+    _ request: UnsafeMutableRawPointer?,
+    _ seconds: Double,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+) -> Int32 {
+    guard let request else {
+        return fail(outErrorMessage, status: SA_INVALID_ARGUMENT, message: "null SNClassifySoundRequest")
+    }
+    guard seconds.isFinite, seconds > 0 else {
+        return fail(outErrorMessage, status: SA_INVALID_ARGUMENT, message: "windowDuration must be finite and > 0")
+    }
+    let object: SNClassifySoundRequest = saBorrow(request, as: SNClassifySoundRequest.self)
+    object.windowDuration = secondsToCMTime(seconds)
+    return SA_OK
+}
+
+@_cdecl("sa_request_get_window_duration_constraint")
+public func sa_request_get_window_duration_constraint(
+    _ request: UnsafeMutableRawPointer?,
+    _ outConstraint: UnsafeMutableRawPointer?,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+) -> Int32 {
+    guard let request else {
+        return fail(outErrorMessage, status: SA_INVALID_ARGUMENT, message: "null SNClassifySoundRequest")
+    }
+    let object: SNClassifySoundRequest = saBorrow(request, as: SNClassifySoundRequest.self)
+    return fillConstraintRaw(object.windowDurationConstraint, outRaw: outConstraint)
+}
+
+@_cdecl("sa_request_known_classifications_for_request")
+public func sa_request_known_classifications_for_request(
+    _ request: UnsafeMutableRawPointer?,
+    _ outArray: UnsafeMutablePointer<UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?>,
+    _ outCount: UnsafeMutablePointer<Int>,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+) -> Int32 {
+    guard let request else {
+        return fail(outErrorMessage, status: SA_INVALID_ARGUMENT, message: "null SNClassifySoundRequest")
+    }
+    let object: SNClassifySoundRequest = saBorrow(request, as: SNClassifySoundRequest.self)
+    copyStrings(object.knownClassifications, outArray: outArray, outCount: outCount)
+    return SA_OK
+}
+
+// MARK: - TimeDurationConstraint helpers
+
+@_cdecl("sa_time_duration_constraint_create_enumerated")
+public func sa_time_duration_constraint_create_enumerated(
+    _ durations: UnsafePointer<Double>?,
+    _ count: Int,
+    _ outConstraint: UnsafeMutableRawPointer?,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+) -> Int32 {
+    guard count > 0, let durations else {
+        return fail(outErrorMessage, status: SA_INVALID_ARGUMENT, message: "enumerated constraint requires at least one duration")
+    }
+    let values = UnsafeBufferPointer(start: durations, count: count).map(secondsToCMTime)
+    return fillConstraintRaw(.enumeratedDurations(values), outRaw: outConstraint)
+}
+
+@_cdecl("sa_time_duration_constraint_create_range")
+public func sa_time_duration_constraint_create_range(
+    _ startSeconds: Double,
+    _ durationSeconds: Double,
+    _ outConstraint: UnsafeMutableRawPointer?,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+) -> Int32 {
+    guard durationSeconds >= 0 else {
+        return fail(outErrorMessage, status: SA_INVALID_ARGUMENT, message: "duration range cannot be negative")
+    }
+    let range = CMTimeRange(start: secondsToCMTime(startSeconds), duration: secondsToCMTime(durationSeconds))
+    return fillConstraintRaw(.durationRange(range), outRaw: outConstraint)
+}
+
+// MARK: - Analyzer wrappers
+
+@_cdecl("sa_audio_file_analyzer_create")
+public func sa_audio_file_analyzer_create(
+    _ audioPath: UnsafePointer<CChar>,
+    _ outAnalyzer: UnsafeMutablePointer<UnsafeMutableRawPointer?>,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+) -> Int32 {
+    outAnalyzer.pointee = nil
+    let url = URL(fileURLWithPath: String(cString: audioPath))
+    do {
+        let box = try SAFileAnalyzerBox(url: url)
+        outAnalyzer.pointee = saRetain(box)
+        return SA_OK
+    } catch {
+        return fail(outErrorMessage, defaultStatus: SA_AUDIO_LOAD_FAILED, error: error)
+    }
+}
+
+@_cdecl("sa_audio_file_analyzer_release")
+public func sa_audio_file_analyzer_release(_ analyzer: UnsafeMutableRawPointer?) {
+    guard let analyzer else { return }
+    saRelease(analyzer, as: SAFileAnalyzerBox.self)
+}
+
+@_cdecl("sa_audio_file_analyzer_add_request")
+public func sa_audio_file_analyzer_add_request(
+    _ analyzer: UnsafeMutableRawPointer?,
+    _ request: UnsafeMutableRawPointer?,
+    _ userInfo: UnsafeMutableRawPointer?,
+    _ resultCallback: @escaping SAObserverResultCallback,
+    _ errorCallback: @escaping SAObserverErrorCallback,
+    _ completeCallback: @escaping SAObserverCompleteCallback,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+) -> Int32 {
+    guard let analyzer, let request else {
+        return fail(outErrorMessage, status: SA_INVALID_ARGUMENT, message: "null analyzer or request")
+    }
+
+    let box: SAFileAnalyzerBox = saBorrow(analyzer, as: SAFileAnalyzerBox.self)
+    let requestObject: SNClassifySoundRequest = saBorrow(request, as: SNClassifySoundRequest.self)
+    let key = UInt(bitPattern: request)
+    let observer = SAObserverBox(
+        userInfo: userInfo,
+        resultCallback: resultCallback,
+        errorCallback: errorCallback,
+        completeCallback: completeCallback,
+        recordError: { [weak box] (error: Error) in
+            if box?.latestAnalysisError == nil {
+                box?.latestAnalysisError = error
+            }
+        }
+    )
+
+    do {
+        try box.analyzer.add(requestObject, withObserver: observer)
+        box.observers[key] = observer
+        return SA_OK
+    } catch {
+        return fail(outErrorMessage, defaultStatus: SA_ANALYSIS_FAILED, error: error)
+    }
+}
+
+@_cdecl("sa_audio_file_analyzer_remove_request")
+public func sa_audio_file_analyzer_remove_request(
+    _ analyzer: UnsafeMutableRawPointer?,
+    _ request: UnsafeMutableRawPointer?
+) {
+    guard let analyzer, let request else { return }
+    let box: SAFileAnalyzerBox = saBorrow(analyzer, as: SAFileAnalyzerBox.self)
+    let requestObject: SNClassifySoundRequest = saBorrow(request, as: SNClassifySoundRequest.self)
+    box.analyzer.remove(requestObject)
+    box.observers.removeValue(forKey: UInt(bitPattern: request))
+}
+
+@_cdecl("sa_audio_file_analyzer_remove_all_requests")
+public func sa_audio_file_analyzer_remove_all_requests(_ analyzer: UnsafeMutableRawPointer?) {
+    guard let analyzer else { return }
+    let box: SAFileAnalyzerBox = saBorrow(analyzer, as: SAFileAnalyzerBox.self)
+    box.analyzer.removeAllRequests()
+    box.observers.removeAll()
+}
+
+@_cdecl("sa_audio_file_analyzer_analyze")
+public func sa_audio_file_analyzer_analyze(
+    _ analyzer: UnsafeMutableRawPointer?,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+) -> Int32 {
+    guard let analyzer else {
+        return fail(outErrorMessage, status: SA_INVALID_ARGUMENT, message: "null analyzer")
+    }
+    let box: SAFileAnalyzerBox = saBorrow(analyzer, as: SAFileAnalyzerBox.self)
+    box.latestAnalysisError = nil
+    box.analyzer.analyze()
+    if let error = box.latestAnalysisError {
+        return fail(outErrorMessage, status: SA_ANALYSIS_FAILED, message: "analysis failed: \(error.localizedDescription)")
+    }
+    return SA_OK
+}
+
+@_cdecl("sa_audio_file_analyzer_analyze_with_completion")
+public func sa_audio_file_analyzer_analyze_with_completion(
+    _ analyzer: UnsafeMutableRawPointer?,
+    _ outDidReachEndOfFile: UnsafeMutablePointer<Bool>,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+) -> Int32 {
+    guard let analyzer else {
+        return fail(outErrorMessage, status: SA_INVALID_ARGUMENT, message: "null analyzer")
+    }
+    let box: SAFileAnalyzerBox = saBorrow(analyzer, as: SAFileAnalyzerBox.self)
+    let semaphore = DispatchSemaphore(value: 0)
+    var didReachEndOfFile = false
+    box.latestAnalysisError = nil
+    box.analyzer.analyze { reachedEndOfFile in
+        didReachEndOfFile = reachedEndOfFile
+        semaphore.signal()
+    }
+    semaphore.wait()
+    outDidReachEndOfFile.pointee = didReachEndOfFile
+    if let error = box.latestAnalysisError {
+        return fail(outErrorMessage, status: SA_ANALYSIS_FAILED, message: "analysis failed: \(error.localizedDescription)")
+    }
+    return SA_OK
+}
+
+@_cdecl("sa_audio_file_analyzer_cancel_analysis")
+public func sa_audio_file_analyzer_cancel_analysis(_ analyzer: UnsafeMutableRawPointer?) {
+    guard let analyzer else { return }
+    let box: SAFileAnalyzerBox = saBorrow(analyzer, as: SAFileAnalyzerBox.self)
+    box.analyzer.cancelAnalysis()
+}
+
+@_cdecl("sa_audio_stream_analyzer_create")
+public func sa_audio_stream_analyzer_create(
+    _ format: UnsafeRawPointer?,
+    _ outAnalyzer: UnsafeMutablePointer<UnsafeMutableRawPointer?>,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+) -> Int32 {
+    outAnalyzer.pointee = nil
+    guard let format else {
+        return fail(outErrorMessage, status: SA_INVALID_ARGUMENT, message: "null stream format")
+    }
+    let raw = format.assumingMemoryBound(to: SAStreamFormatRaw.self).pointee
+    guard let avFormat = makeAVAudioFormat(from: raw) else {
+        return fail(outErrorMessage, status: SA_INVALID_ARGUMENT, message: "invalid stream format")
+    }
+    let box = SAStreamAnalyzerBox(format: avFormat)
+    outAnalyzer.pointee = saRetain(box)
+    return SA_OK
+}
+
+@_cdecl("sa_audio_stream_analyzer_release")
+public func sa_audio_stream_analyzer_release(_ analyzer: UnsafeMutableRawPointer?) {
+    guard let analyzer else { return }
+    saRelease(analyzer, as: SAStreamAnalyzerBox.self)
+}
+
+@_cdecl("sa_audio_stream_analyzer_add_request")
+public func sa_audio_stream_analyzer_add_request(
+    _ analyzer: UnsafeMutableRawPointer?,
+    _ request: UnsafeMutableRawPointer?,
+    _ userInfo: UnsafeMutableRawPointer?,
+    _ resultCallback: @escaping SAObserverResultCallback,
+    _ errorCallback: @escaping SAObserverErrorCallback,
+    _ completeCallback: @escaping SAObserverCompleteCallback,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+) -> Int32 {
+    guard let analyzer, let request else {
+        return fail(outErrorMessage, status: SA_INVALID_ARGUMENT, message: "null analyzer or request")
+    }
+
+    let box: SAStreamAnalyzerBox = saBorrow(analyzer, as: SAStreamAnalyzerBox.self)
+    let requestObject: SNClassifySoundRequest = saBorrow(request, as: SNClassifySoundRequest.self)
+    let key = UInt(bitPattern: request)
+    let observer = SAObserverBox(
+        userInfo: userInfo,
+        resultCallback: resultCallback,
+        errorCallback: errorCallback,
+        completeCallback: completeCallback,
+        recordError: { [weak box] (error: Error) in
+            if box?.latestAnalysisError == nil {
+                box?.latestAnalysisError = error
+            }
+        }
+    )
+
+    do {
+        try box.analyzer.add(requestObject, withObserver: observer)
+        box.observers[key] = observer
+        return SA_OK
+    } catch {
+        return fail(outErrorMessage, defaultStatus: SA_ANALYSIS_FAILED, error: error)
+    }
+}
+
+@_cdecl("sa_audio_stream_analyzer_remove_request")
+public func sa_audio_stream_analyzer_remove_request(
+    _ analyzer: UnsafeMutableRawPointer?,
+    _ request: UnsafeMutableRawPointer?
+) {
+    guard let analyzer, let request else { return }
+    let box: SAStreamAnalyzerBox = saBorrow(analyzer, as: SAStreamAnalyzerBox.self)
+    let requestObject: SNClassifySoundRequest = saBorrow(request, as: SNClassifySoundRequest.self)
+    box.analyzer.remove(requestObject)
+    box.observers.removeValue(forKey: UInt(bitPattern: request))
+}
+
+@_cdecl("sa_audio_stream_analyzer_remove_all_requests")
+public func sa_audio_stream_analyzer_remove_all_requests(_ analyzer: UnsafeMutableRawPointer?) {
+    guard let analyzer else { return }
+    let box: SAStreamAnalyzerBox = saBorrow(analyzer, as: SAStreamAnalyzerBox.self)
+    box.analyzer.removeAllRequests()
+    box.observers.removeAll()
+}
+
+@_cdecl("sa_audio_stream_analyzer_analyze_audio_buffer")
+public func sa_audio_stream_analyzer_analyze_audio_buffer(
+    _ analyzer: UnsafeMutableRawPointer?,
+    _ buffer: UnsafeRawPointer?,
+    _ audioFramePosition: Int64,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+) -> Int32 {
+    guard let analyzer, let buffer else {
+        return fail(outErrorMessage, status: SA_INVALID_ARGUMENT, message: "null analyzer or buffer")
+    }
+    guard audioFramePosition >= 0 else {
+        return fail(outErrorMessage, status: SA_INVALID_ARGUMENT, message: "audioFramePosition must be non-negative")
+    }
+
+    let box: SAStreamAnalyzerBox = saBorrow(analyzer, as: SAStreamAnalyzerBox.self)
+    let raw = buffer.assumingMemoryBound(to: SAStreamBufferRaw.self).pointee
+    guard let audioBuffer = makePCMBuffer(from: raw, format: box.format) else {
+        return fail(outErrorMessage, status: SA_INVALID_ARGUMENT, message: "PCM buffer layout does not match analyzer format")
+    }
+
+    box.latestAnalysisError = nil
+    box.analyzer.analyze(audioBuffer, atAudioFramePosition: AVAudioFramePosition(audioFramePosition))
+    if let error = box.latestAnalysisError {
+        return fail(outErrorMessage, status: SA_ANALYSIS_FAILED, message: "analysis failed: \(error.localizedDescription)")
+    }
+    return SA_OK
+}
+
+@_cdecl("sa_audio_stream_analyzer_complete_analysis")
+public func sa_audio_stream_analyzer_complete_analysis(_ analyzer: UnsafeMutableRawPointer?) {
+    guard let analyzer else { return }
+    let box: SAStreamAnalyzerBox = saBorrow(analyzer, as: SAStreamAnalyzerBox.self)
+    box.analyzer.completeAnalysis()
+}
+
+// MARK: - Collecting observer for one-shot classification
 
 private final class CollectingObserver: NSObject, SNResultsObserving {
     var results: [SAClassificationResultRaw] = []
     var error: Error?
 
     func request(_ request: SNRequest, didProduce result: SNResult) {
-        guard let cls = result as? SNClassificationResult else { return }
-        let timeStart = CMTimeGetSeconds(cls.timeRange.start)
-        let timeDuration = CMTimeGetSeconds(cls.timeRange.duration)
-        let count = cls.classifications.count
-        let buffer = UnsafeMutablePointer<SAClassificationRaw>.allocate(capacity: count)
-        for (i, c) in cls.classifications.enumerated() {
-            buffer.advanced(by: i).initialize(to: SAClassificationRaw(
-                identifier: ffiString(c.identifier),
-                confidence: c.confidence
-            ))
-        }
-        results.append(SAClassificationResultRaw(
-            time_start: timeStart,
-            time_duration: timeDuration,
-            classifications: buffer,
-            classification_count: count
-        ))
+        guard let classification = result as? SNClassificationResult else { return }
+        appendClassificationResult(classification, to: &results)
     }
 
     func request(_ request: SNRequest, didFailWithError error: Error) {
@@ -125,13 +457,48 @@ private final class CollectingObserver: NSObject, SNResultsObserving {
     func requestDidComplete(_ request: SNRequest) {}
 }
 
-// MARK: - File classification
+private func collectFileAnalysis(
+    analyzer: SNAudioFileAnalyzer,
+    request: SNClassifySoundRequest,
+    outArray: UnsafeMutablePointer<UnsafeMutableRawPointer?>,
+    outCount: UnsafeMutablePointer<Int>,
+    outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+) -> Int32 {
+    let observer = CollectingObserver()
+    do {
+        try analyzer.add(request, withObserver: observer)
+    } catch {
+        outArray.pointee = nil
+        outCount.pointee = 0
+        return fail(outErrorMessage, defaultStatus: SA_ANALYSIS_FAILED, error: error)
+    }
 
-/// Synchronously analyze the audio file at `audioPath` using Apple's
-/// built-in classifier (`SNClassifierIdentifierVersion1`).
-///
-/// Returns a flat array of `SAClassificationResultRaw` (one per analysis
-/// window). Rust frees via `sa_classification_results_free`.
+    analyzer.analyze()
+
+    if let error = observer.error {
+        outArray.pointee = nil
+        outCount.pointee = 0
+        return fail(outErrorMessage, status: SA_ANALYSIS_FAILED, message: "analysis failed: \(error.localizedDescription)")
+    }
+
+    let count = observer.results.count
+    guard count > 0 else {
+        outArray.pointee = nil
+        outCount.pointee = 0
+        return SA_OK
+    }
+
+    let buffer = UnsafeMutablePointer<SAClassificationResultRaw>.allocate(capacity: count)
+    for (index, row) in observer.results.enumerated() {
+        buffer.advanced(by: index).initialize(to: row)
+    }
+    outArray.pointee = UnsafeMutableRawPointer(buffer)
+    outCount.pointee = count
+    return SA_OK
+}
+
+// MARK: - Convenience file classification
+
 @_cdecl("sa_classify_file")
 public func sa_classify_file(
     _ audioPath: UnsafePointer<CChar>,
@@ -139,81 +506,76 @@ public func sa_classify_file(
     _ outCount: UnsafeMutablePointer<Int>,
     _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
-    let path = String(cString: audioPath)
-    let url = URL(fileURLWithPath: path)
-
-    let analyzer: SNAudioFileAnalyzer
+    let url = URL(fileURLWithPath: String(cString: audioPath))
     do {
-        analyzer = try SNAudioFileAnalyzer(url: url)
+        let analyzer = try SNAudioFileAnalyzer(url: url)
+        let request = try builtInRequest(classifier: SA_CLASSIFIER_IDENTIFIER_VERSION1)
+        return collectFileAnalysis(
+            analyzer: analyzer,
+            request: request,
+            outArray: outArray,
+            outCount: outCount,
+            outErrorMessage: outErrorMessage
+        )
     } catch {
-        outErrorMessage?.pointee = ffiString("audio file load failed: \(error.localizedDescription)")
-        return SA_AUDIO_LOAD_FAILED
-    }
-
-    let request: SNClassifySoundRequest
-    do {
-        request = try SNClassifySoundRequest(classifierIdentifier: .version1)
-    } catch {
-        outErrorMessage?.pointee = ffiString("classifier init failed: \(error.localizedDescription)")
-        return SA_REQUEST_CREATE_FAILED
-    }
-
-    let observer = CollectingObserver()
-    do {
-        try analyzer.add(request, withObserver: observer)
-    } catch {
-        outErrorMessage?.pointee = ffiString("add request failed: \(error.localizedDescription)")
-        return SA_ANALYSIS_FAILED
-    }
-
-    // SNAudioFileAnalyzer.analyze() is synchronous; it returns when the
-    // entire file has been processed (or an observer received an error).
-    analyzer.analyze()
-
-    if let err = observer.error {
-        outErrorMessage?.pointee = ffiString("analysis failed: \(err.localizedDescription)")
-        return SA_ANALYSIS_FAILED
-    }
-
-    if observer.results.isEmpty {
         outArray.pointee = nil
         outCount.pointee = 0
-        return SA_OK
+        let status: Int32 = (error as NSError).domain == NSCocoaErrorDomain ? SA_AUDIO_LOAD_FAILED : SA_REQUEST_CREATE_FAILED
+        return fail(outErrorMessage, defaultStatus: status, error: error)
     }
-    let buffer = UnsafeMutablePointer<SAClassificationResultRaw>.allocate(
-        capacity: observer.results.count
-    )
-    for (i, r) in observer.results.enumerated() {
-        buffer.advanced(by: i).initialize(to: r)
-    }
-    outArray.pointee = UnsafeMutableRawPointer(buffer)
-    outCount.pointee = observer.results.count
-    return SA_OK
 }
 
 @_cdecl("sa_classification_results_free")
 public func sa_classification_results_free(_ array: UnsafeMutableRawPointer?, _ count: Int) {
-    guard let array = array else { return }
+    guard let array else { return }
     let typed = array.assumingMemoryBound(to: SAClassificationResultRaw.self)
-    for i in 0..<count {
-        let r = typed.advanced(by: i).pointee
-        if let inner = r.classifications {
-            for j in 0..<r.classification_count {
-                if let id = inner.advanced(by: j).pointee.identifier { free(id) }
-            }
-            inner.deallocate()
-        }
+    for index in 0..<count {
+        let row = typed.advanced(by: index).pointee
+        freeClassificationsRaw(row.classifications, count: row.classification_count)
     }
     typed.deallocate()
 }
 
-// MARK: - Live mic streaming (v0.2)
+@_cdecl("sa_classify_file_with_model")
+public func sa_classify_file_with_model(
+    _ audioPath: UnsafePointer<CChar>,
+    _ modelPath: UnsafePointer<CChar>,
+    _ outArray: UnsafeMutablePointer<UnsafeMutableRawPointer?>,
+    _ outCount: UnsafeMutablePointer<Int>,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+) -> Int32 {
+    let audioURL = URL(fileURLWithPath: String(cString: audioPath))
+    let modelURL = URL(fileURLWithPath: String(cString: modelPath))
+    do {
+        let analyzer = try SNAudioFileAnalyzer(url: audioURL)
+        let model = try MLModel(contentsOf: modelURL)
+        let request = try SNClassifySoundRequest(mlModel: model)
+        return collectFileAnalysis(
+            analyzer: analyzer,
+            request: request,
+            outArray: outArray,
+            outCount: outCount,
+            outErrorMessage: outErrorMessage
+        )
+    } catch {
+        outArray.pointee = nil
+        outCount.pointee = 0
+        let nsError = error as NSError
+        let status: Int32 = if nsError.domain == NSCocoaErrorDomain {
+            SA_AUDIO_LOAD_FAILED
+        } else {
+            SA_REQUEST_CREATE_FAILED
+        }
+        return fail(outErrorMessage, defaultStatus: status, error: error)
+    }
+}
 
-/// Callback shape:
-///   user_info, time_start, time_duration, classifications_ptr, classification_count
+// MARK: - Live microphone convenience surface
+
 public typealias SAStreamCallback = @convention(c) (
     UnsafeMutableRawPointer?,
-    Double, Double,
+    Double,
+    Double,
     UnsafeMutableRawPointer?,
     Int
 ) -> Void
@@ -223,35 +585,22 @@ private final class SAStreamObserver: NSObject, SNResultsObserving {
     let callback: SAStreamCallback
     let userInfo: UnsafeMutableRawPointer?
 
-    init(callback: SAStreamCallback, userInfo: UnsafeMutableRawPointer?) {
+    init(callback: @escaping SAStreamCallback, userInfo: UnsafeMutableRawPointer?) {
         self.callback = callback
         self.userInfo = userInfo
     }
 
     func request(_ request: SNRequest, didProduce result: SNResult) {
         guard let classification = result as? SNClassificationResult else { return }
-        let range = classification.timeRange
-        let timeStart = CMTimeGetSeconds(range.start)
-        let timeDur = CMTimeGetSeconds(range.duration)
-
-        let classifications = classification.classifications
-        let n = classifications.count
-        if n == 0 {
-            callback(userInfo, timeStart, timeDur, nil, 0)
-            return
-        }
-        let buf = UnsafeMutablePointer<SAClassificationRaw>.allocate(capacity: n)
-        for (i, c) in classifications.enumerated() {
-            buf.advanced(by: i).initialize(to: SAClassificationRaw(
-                identifier: strdup(c.identifier),
-                confidence: c.confidence
-            ))
-        }
-        callback(userInfo, timeStart, timeDur, UnsafeMutableRawPointer(buf), n)
-        for i in 0..<n {
-            if let s = buf[i].identifier { free(s) }
-        }
-        buf.deallocate()
+        let buffer = classificationsRaw(classification.classifications)
+        callback(
+            userInfo,
+            CMTimeGetSeconds(classification.timeRange.start),
+            CMTimeGetSeconds(classification.timeRange.duration),
+            UnsafeMutableRawPointer(buffer),
+            classification.classifications.count
+        )
+        freeClassificationsRaw(buffer, count: classification.classifications.count)
     }
 }
 
@@ -259,23 +608,26 @@ private final class SAStreamSession {
     let engine = AVAudioEngine()
     let analyzer: SNAudioStreamAnalyzer
     let observer: SAStreamObserver
-    var framePos: AVAudioFramePosition = 0
+    var framePosition: AVAudioFramePosition = 0
 
     init(observer: SAStreamObserver) throws {
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
         analyzer = SNAudioStreamAnalyzer(format: format)
         self.observer = observer
-        let request = try SNClassifySoundRequest(classifierIdentifier: .version1)
+        let request = try builtInRequest(classifier: SA_CLASSIFIER_IDENTIFIER_VERSION1)
         try analyzer.add(request, withObserver: observer)
-        input.installTap(onBus: 0, bufferSize: 8192, format: format) { [weak self] buf, _ in
-            guard let self = self else { return }
-            self.analyzer.analyze(buf, atAudioFramePosition: self.framePos)
-            self.framePos += AVAudioFramePosition(buf.frameLength)
+        input.installTap(onBus: 0, bufferSize: 8192, format: format) { [weak self] buffer, _ in
+            guard let self else { return }
+            analyzer.analyze(buffer, atAudioFramePosition: framePosition)
+            framePosition += AVAudioFramePosition(buffer.frameLength)
         }
     }
 
-    func start() throws { try engine.start() }
+    func start() throws {
+        try engine.start()
+    }
+
     func stop() {
         engine.stop()
         engine.inputNode.removeTap(onBus: 0)
@@ -288,16 +640,16 @@ private let streamSessionsLock = NSLock()
 
 @_cdecl("sa_stream_start")
 public func sa_stream_start(
-    _ callback: SAStreamCallback,
-    _ user_info: UnsafeMutableRawPointer?,
-    _ out_err: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    _ callback: @escaping SAStreamCallback,
+    _ userInfo: UnsafeMutableRawPointer?,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> UnsafeMutableRawPointer? {
     if #unavailable(macOS 10.15) {
-        out_err?.pointee = ffiString("requires macOS 10.15+")
+        outErrorMessage?.pointee = ffiString("requires macOS 10.15+")
         return nil
     }
     do {
-        let observer = SAStreamObserver(callback: callback, userInfo: user_info)
+        let observer = SAStreamObserver(callback: callback, userInfo: userInfo)
         let session = try SAStreamSession(observer: observer)
         try session.start()
         let key = Unmanaged.passRetained(session).toOpaque()
@@ -306,112 +658,17 @@ public func sa_stream_start(
         streamSessionsLock.unlock()
         return key
     } catch {
-        out_err?.pointee = ffiString("stream start failed: \(error.localizedDescription)")
+        outErrorMessage?.pointee = ffiString("stream start failed: \(error.localizedDescription)")
         return nil
     }
 }
 
 @_cdecl("sa_stream_stop")
 public func sa_stream_stop(_ handle: UnsafeMutableRawPointer?) {
-    guard let handle = handle else { return }
+    guard let handle else { return }
     streamSessionsLock.lock()
     let session = streamSessions.removeValue(forKey: handle)
     streamSessionsLock.unlock()
     session?.stop()
     Unmanaged<SAStreamSession>.fromOpaque(handle).release()
-}
-
-// MARK: - Custom CoreML classifier (v0.3)
-
-import CoreML
-
-@_cdecl("sa_classify_file_with_model")
-public func sa_classify_file_with_model(
-    _ audioPath: UnsafePointer<CChar>,
-    _ modelPath: UnsafePointer<CChar>,
-    _ outArray: UnsafeMutablePointer<UnsafeMutableRawPointer?>,
-    _ outCount: UnsafeMutablePointer<Int>,
-    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
-) -> Int32 {
-    let audio = String(cString: audioPath)
-    let modelStr = String(cString: modelPath)
-    let audioURL = URL(fileURLWithPath: audio)
-    let modelURL = URL(fileURLWithPath: modelStr)
-
-    let mlModel: MLModel
-    do {
-        mlModel = try MLModel(contentsOf: modelURL)
-    } catch {
-        outErrorMessage?.pointee = ffiString("MLModel load failed: \(error.localizedDescription)")
-        outArray.pointee = nil; outCount.pointee = 0
-        return SA_REQUEST_CREATE_FAILED
-    }
-
-    let analyzer: SNAudioFileAnalyzer
-    do {
-        analyzer = try SNAudioFileAnalyzer(url: audioURL)
-    } catch {
-        outErrorMessage?.pointee = ffiString("SNAudioFileAnalyzer init: \(error.localizedDescription)")
-        outArray.pointee = nil; outCount.pointee = 0
-        return SA_AUDIO_LOAD_FAILED
-    }
-
-    let request: SNClassifySoundRequest
-    do {
-        request = try SNClassifySoundRequest(mlModel: mlModel)
-    } catch {
-        outErrorMessage?.pointee = ffiString("SNClassifySoundRequest custom: \(error.localizedDescription)")
-        outArray.pointee = nil; outCount.pointee = 0
-        return SA_REQUEST_CREATE_FAILED
-    }
-
-    final class Collector: NSObject, SNResultsObserving {
-        var rows: [SAClassificationResultRaw] = []
-        var failure: String? = nil
-        func request(_ request: SNRequest, didProduce result: SNResult) {
-            guard let classification = result as? SNClassificationResult else { return }
-            let range = classification.timeRange
-            let timeStart = CMTimeGetSeconds(range.start)
-            let timeDur = CMTimeGetSeconds(range.duration)
-            let n = classification.classifications.count
-            let buf = UnsafeMutablePointer<SAClassificationRaw>.allocate(capacity: n)
-            for (i, c) in classification.classifications.enumerated() {
-                buf.advanced(by: i).initialize(to: SAClassificationRaw(
-                    identifier: strdup(c.identifier),
-                    confidence: c.confidence))
-            }
-            rows.append(SAClassificationResultRaw(
-                time_start: timeStart,
-                time_duration: timeDur,
-                classifications: buf,
-                classification_count: n))
-        }
-        func request(_ request: SNRequest, didFailWithError error: Error) {
-            failure = error.localizedDescription
-        }
-    }
-    let observer = Collector()
-    do {
-        try analyzer.add(request, withObserver: observer)
-    } catch {
-        outErrorMessage?.pointee = ffiString("addRequest failed: \(error.localizedDescription)")
-        outArray.pointee = nil; outCount.pointee = 0
-        return SA_REQUEST_CREATE_FAILED
-    }
-    analyzer.analyze()
-    if let f = observer.failure {
-        outErrorMessage?.pointee = ffiString("analyze failed: \(f)")
-        outArray.pointee = nil; outCount.pointee = 0
-        return SA_ANALYSIS_FAILED
-    }
-
-    let count = observer.rows.count
-    if count == 0 { outArray.pointee = nil; outCount.pointee = 0; return SA_OK }
-    let buf = UnsafeMutablePointer<SAClassificationResultRaw>.allocate(capacity: count)
-    for (i, r) in observer.rows.enumerated() {
-        buf.advanced(by: i).initialize(to: r)
-    }
-    outArray.pointee = UnsafeMutableRawPointer(buf)
-    outCount.pointee = count
-    return SA_OK
 }
