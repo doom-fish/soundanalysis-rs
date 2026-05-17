@@ -1,5 +1,16 @@
 # Changelog
 
+## [v0.6.0]
+
+### Added
+
+- **Async API (Tier 1)**: New `async_api` module (gated behind `async` feature) providing `AsyncAudioFileAnalyzer` for non-blocking analysis operations using callback-based FFI.
+- `async_api::AsyncAudioFileAnalyzer` for async file analysis with future-based completion.
+- Example `04_async_classify_file` demonstrating async API usage with `pollster`.
+- Tests in `tests/async_api_tests.rs` covering async analyzer creation and path validation.
+- `doom-fish-utils` dependency for async completion utilities.
+- `pollster` dev-dependency for running async examples.
+
 ## [v0.5.2]
 
 ### Added

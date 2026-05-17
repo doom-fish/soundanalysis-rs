@@ -41,6 +41,10 @@ pub mod live;
 #[cfg_attr(docsrs, doc(cfg(feature = "stream")))]
 pub mod streaming;
 
+#[cfg(feature = "async")]
+#[cfg_attr(docsrs, doc(cfg(feature = "async")))]
+pub mod async_api;
+
 pub use error::{error_domain, ErrorCode, SAError, SNErrorCode, SNErrorDomain};
 pub use observer::ResultsObserver as SNResultsObserving;
 pub use observer::{AnalysisResult, ResultsObserver, ResultsObserverFns, SNResult};

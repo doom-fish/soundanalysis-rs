@@ -172,6 +172,11 @@ extern "C" {
         out_error_message: *mut *mut c_char,
     ) -> i32;
     pub fn sa_audio_file_analyzer_cancel_analysis(analyzer: *mut c_void);
+    pub fn sa_audio_file_analyzer_analyze_async(
+        audio_path: *const c_char,
+        cb: unsafe extern "C" fn(bool, *const i8, *mut c_void),
+        ctx: *mut c_void,
+    );
 
     pub fn sa_audio_stream_analyzer_create(
         format: *const c_void,

@@ -2,7 +2,7 @@
 
 Safe Rust bindings for Apple's [SoundAnalysis](https://developer.apple.com/documentation/soundanalysis) framework on macOS.
 
-> **Status:** v0.5.2 audits the full public macOS `SoundAnalysis.framework` surface against the Xcode 26.2 SDK, including raw `SNErrorDomain` / `SNErrorCode` exports alongside the Apple-style aliases (`SNClassifySoundRequest`, `SNClassifierIdentifier`, `SNRequest`, `SNResult`, `SNTimeRange`). The complete mapping lives in [`COVERAGE.md`](COVERAGE.md). Requested symbols that are absent from the current macOS SDK (`SNDetectSoundEventRequest`, `SNAcousticFeaturePrintRequest`, `SNAcousticFeaturePrint`) are called out there as skipped.
+> **Status:** v0.6.0 adds the async API (Tier 1) with `AsyncAudioFileAnalyzer` for non-blocking file analysis. v0.5.2 audited the full public macOS `SoundAnalysis.framework` surface against the Xcode 26.2 SDK. See [`COVERAGE.md`](COVERAGE.md) for complete API mapping.
 
 ## Quick start
 
@@ -64,6 +64,25 @@ For real-time use, `AudioStreamAnalyzer` accepts interleaved or planar PCM buffe
 - `cargo run --all-features --example 03_smoke_surface`
 - `cargo run --example 04_apple_aliases`
 - `cargo run --example 05_custom_model_request`
+- `cargo run --features async --example 04_async_classify_file`
+
+## Async API
+
+The `async` feature provides `AsyncAudioFileAnalyzer` for non-blocking audio file analysis:
+
+```rust,no_run
+use soundanalysis::async_api::AsyncAudioFileAnalyzer;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let analyzer = AsyncAudioFileAnalyzer::new("path/to/audio.mp3")?;
+    analyzer.analyze().await?;
+    println!("Analysis complete");
+    Ok(())
+}
+```
+
+The async API is **executor-agnostic** — it works with any async runtime (Tokio, async-std, smol, etc.).
 
 ## Pipeline composition
 

@@ -1,6 +1,6 @@
 [package]
 name = "soundanalysis"
-version = "0.5.2"
+version = "0.6.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/doom-fish/soundanalysis-rs"
@@ -39,11 +39,14 @@ crate-type = ["lib"]
 default = ["analyze_file", "stream"]
 analyze_file = []
 stream = ["analyze_file"]
+async = []
 
 [dependencies]
+doom-fish-utils = { path = "../doom-fish-utils", version = "0.1" }
 
 [dev-dependencies]
 regex-lite = "0.1"
+pollster = "0.3"
 
 [package.metadata.docs.rs]
 all-features = true
@@ -65,6 +68,10 @@ required-features = ["analyze_file"]
 [[example]]
 name = "03_smoke_surface"
 required-features = ["stream"]
+
+[[example]]
+name = "04_async_classify_file"
+required-features = ["async"]
 
 [profile.release]
 debug = "full"
