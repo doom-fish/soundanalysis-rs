@@ -120,6 +120,10 @@ where
 
 pub(crate) unsafe fn drop_observer(ptr: *mut c_void) {
     if !ptr.is_null() {
+        // SAFETY: ptr comes from box_observer which creates a valid ObserverState box,
+        // leaks it via Box::into_raw, and hands the raw pointer to Swift. Here we
+        // reconstitute the box to drop it, which is safe provided drop_observer
+        // is called exactly once per box_observer call (guaranteed by Drop impl).
         drop(Box::from_raw(ptr.cast::<ObserverState>()));
     }
 }

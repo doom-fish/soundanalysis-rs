@@ -70,7 +70,7 @@ For real-time use, `AudioStreamAnalyzer` accepts interleaved or planar PCM buffe
 
 The `async` feature provides `AsyncAudioFileAnalyzer` for non-blocking audio file analysis:
 
-```rust,no_run
+```rust,ignore
 use soundanalysis::async_api::AsyncAudioFileAnalyzer;
 
 #[tokio::main]

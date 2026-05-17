@@ -46,6 +46,10 @@ impl AnalysisRequest for ClassifySoundRequest {}
 
 impl Clone for ClassifySoundRequest {
     fn clone(&self) -> Self {
+        // SAFETY: sa_request_retain is a Swift bridge function that increments the
+        // retain count on the underlying SNClassifySoundRequest. The function is called
+        // with a valid pointer (self.ptr), and the returned pointer is valid for the
+        // lifetime of the enclosing ClassifySoundRequest. Never returns null on success.
         let ptr = unsafe { ffi::sa_request_retain(self.ptr.as_ptr()) };
         Self {
             ptr: NonNull::new(ptr).expect("sa_request_retain returned null"),
@@ -55,6 +59,9 @@ impl Clone for ClassifySoundRequest {
 
 impl Drop for ClassifySoundRequest {
     fn drop(&mut self) {
+        // SAFETY: sa_request_release is a Swift bridge function that decrements the
+        // retain count on the underlying SNClassifySoundRequest. We only call this
+        // once per ClassifySoundRequest (in Drop), matching the single retain in Clone.
         unsafe { ffi::sa_request_release(self.ptr.as_ptr()) };
     }
 }

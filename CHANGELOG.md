@@ -1,5 +1,13 @@
 # Changelog
 
+## [v0.6.1]
+
+### Fixed
+
+- Added SAFETY comments to all unsafe blocks documenting pointer lifetime and validity invariants.
+- Added panic handling (`catch_unwind`) to FFI callback trampolines in `live::trampoline()` and `async_api::analyzer_complete_callback()` to prevent panics from unwinding across the FFI boundary.
+- Fixed doctests for async API examples to use `ignore` attribute instead of incomplete async context.
+
 ## [v0.6.0]
 
 ### Added

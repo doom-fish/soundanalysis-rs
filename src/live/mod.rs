@@ -1,6 +1,7 @@
 //! Live microphone sound classification via `SNAudioStreamAnalyzer`.
 
 use core::ffi::c_void;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -51,33 +52,36 @@ unsafe extern "C" fn trampoline(
     if user_info.is_null() {
         return;
     }
-    let cb_arc_ptr = user_info.cast::<StreamCb>();
-    let typed = classifications.cast::<ffi::ClassificationRaw>();
-    let mut classes = Vec::with_capacity(classification_count);
-    if !typed.is_null() {
-        for i in 0..classification_count {
-            let raw = unsafe { &*typed.add(i) };
-            let id = if raw.identifier.is_null() {
-                String::new()
-            } else {
-                unsafe { core::ffi::CStr::from_ptr(raw.identifier) }
-                    .to_string_lossy()
-                    .into_owned()
-            };
-            classes.push(Classification {
-                identifier: id,
-                confidence: raw.confidence,
-            });
+    
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        let cb_arc_ptr = user_info.cast::<StreamCb>();
+        let typed = classifications.cast::<ffi::ClassificationRaw>();
+        let mut classes = Vec::with_capacity(classification_count);
+        if !typed.is_null() {
+            for i in 0..classification_count {
+                let raw = unsafe { &*typed.add(i) };
+                let id = if raw.identifier.is_null() {
+                    String::new()
+                } else {
+                    unsafe { core::ffi::CStr::from_ptr(raw.identifier) }
+                        .to_string_lossy()
+                        .into_owned()
+                };
+                classes.push(Classification {
+                    identifier: id,
+                    confidence: raw.confidence,
+                });
+            }
         }
-    }
-    let Ok(mut guard) = (unsafe { &*cb_arc_ptr }).lock() else {
-        return;
-    };
-    guard(StreamUpdate {
-        time_start,
-        time_duration,
-        classifications: classes,
-    });
+        let Ok(mut guard) = (unsafe { &*cb_arc_ptr }).lock() else {
+            return;
+        };
+        guard(StreamUpdate {
+            time_start,
+            time_duration,
+            classifications: classes,
+        });
+    }));
 }
 
 /// Start live microphone classification. Returns a
@@ -95,11 +99,20 @@ where
 {
     let boxed: Box<dyn FnMut(StreamUpdate) + Send + 'static> = Box::new(callback);
     let arc: Arc<StreamCb> = Arc::new(Mutex::new(boxed));
+    // SAFETY: Arc::into_raw leaks the Arc into a raw pointer, which we cast to c_void.
+    // This pointer is passed to the Swift bridge, which stores it as user_info in the
+    // trampoline callback. When analysis is done, sa_stream_start either succeeds
+    // (storing user_info for callbacks) or fails immediately. On failure, we reconstitute
+    // the Arc via Arc::from_raw to drop it. On success, the Arc is kept alive in
+    // LiveClassification::_callback and freed when the guard is dropped.
     let raw = Arc::into_raw(arc.clone()).cast::<c_void>().cast_mut();
     let mut err_msg: *mut core::ffi::c_char = core::ptr::null_mut();
     let handle = unsafe { ffi::sa_stream_start(trampoline, raw, &mut err_msg) };
     if handle.is_null() {
         // Take back the Arc we leaked into raw so it can drop.
+        // SAFETY: raw was created from Arc::into_raw(arc.clone()) just above,
+        // and we have never called Arc::from_raw on it yet, so it's safe to
+        // reconstitute and drop.
         unsafe { Arc::from_raw(raw.cast::<StreamCb>()) };
         let msg = if err_msg.is_null() {
             "stream start failed".to_string()

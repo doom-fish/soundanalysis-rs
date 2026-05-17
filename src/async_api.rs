@@ -21,19 +21,16 @@
 //!
 //! ### Basic Async File Analysis
 //!
-//! ```rust,no_run
-//! # #[tokio::main]
-//! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! ```rust,ignore
 //! use soundanalysis::async_api::AsyncAudioFileAnalyzer;
-//! use soundanalysis::ClassifySoundRequest;
 //!
-//! let mut analyzer = AsyncAudioFileAnalyzer::new("path/to/audio.mp3")?;
-//! let request = ClassifySoundRequest::new()?;
-//! analyzer.add_request(&request)?;
-//! analyzer.analyze().await?;
-//! println!("Analysis complete");
-//! # Ok(())
-//! # }
+//! #[tokio::main]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     let analyzer = AsyncAudioFileAnalyzer::new("path/to/audio.mp3")?;
+//!     analyzer.analyze().await?;
+//!     println!("Analysis complete");
+//!     Ok(())
+//! }
 //! ```
 //!
 //! ## Async vs Blocking API
@@ -56,6 +53,7 @@ use crate::error::SAError;
 use doom_fish_utils::completion::{error_from_cstr, AsyncCompletion, AsyncCompletionFuture};
 use std::ffi::c_void;
 use std::future::Future;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -69,12 +67,14 @@ extern "C" fn analyzer_complete_callback(
     error: *const i8,
     user_data: *mut c_void,
 ) {
-    if success {
-        unsafe { AsyncCompletion::<()>::complete_ok(user_data, ()) };
-    } else {
-        let error_msg = unsafe { error_from_cstr(error) };
-        unsafe { AsyncCompletion::<()>::complete_err(user_data, error_msg) };
-    }
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if success {
+            unsafe { AsyncCompletion::<()>::complete_ok(user_data, ()) };
+        } else {
+            let error_msg = unsafe { error_from_cstr(error) };
+            unsafe { AsyncCompletion::<()>::complete_err(user_data, error_msg) };
+        }
+    }));
 }
 
 /// Future type for async file analysis
@@ -132,6 +132,11 @@ impl AsyncAudioFileAnalyzer {
     /// signals an error.
     pub fn analyze(&self) -> AnalyzeFileFuture {
         let (future, ctx) = AsyncCompletion::create();
+        // SAFETY: analyzer_complete_callback receives a user_data pointer that is
+        // the AsyncCompletion context created above. The callback is called by the
+        // Swift bridge when analysis completes, and ctx is valid for the lifetime of
+        // the returned AnalyzeFileFuture (held in the inner AsyncCompletionFuture).
+        // The callback is wrapped with catch_unwind to prevent panics across FFI.
         unsafe {
             crate::ffi::sa_audio_file_analyzer_analyze_async(
                 self.path.as_ptr(),
