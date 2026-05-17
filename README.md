@@ -2,7 +2,7 @@
 
 Safe Rust bindings for Apple's [SoundAnalysis](https://developer.apple.com/documentation/soundanalysis) framework on macOS.
 
-> **Status:** v0.5.1 audits the full public macOS `SoundAnalysis.framework` surface against the Xcode 26.2 SDK, including raw `SNErrorDomain` / `SNErrorCode` exports alongside the Apple-style aliases (`SNClassifySoundRequest`, `SNClassifierIdentifier`, `SNRequest`, `SNResult`, `SNTimeRange`). The complete mapping lives in [`COVERAGE.md`](COVERAGE.md). Requested symbols that are absent from the current macOS SDK (`SNDetectSoundEventRequest`, `SNAcousticFeaturePrintRequest`, `SNAcousticFeaturePrint`) are called out there as skipped.
+> **Status:** v0.5.2 audits the full public macOS `SoundAnalysis.framework` surface against the Xcode 26.2 SDK, including raw `SNErrorDomain` / `SNErrorCode` exports alongside the Apple-style aliases (`SNClassifySoundRequest`, `SNClassifierIdentifier`, `SNRequest`, `SNResult`, `SNTimeRange`). The complete mapping lives in [`COVERAGE.md`](COVERAGE.md). Requested symbols that are absent from the current macOS SDK (`SNDetectSoundEventRequest`, `SNAcousticFeaturePrintRequest`, `SNAcousticFeaturePrint`) are called out there as skipped.
 
 ## Quick start
 

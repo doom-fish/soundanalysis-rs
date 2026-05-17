@@ -1,5 +1,12 @@
 # Changelog
 
+## [v0.5.2]
+
+### Added
+
+- Integration coverage for the Requests, Analyzers, Classification, and Live surfaces in `tests/requests_integration.rs`, `tests/analyzers_integration.rs`, `tests/classification_integration.rs`, and `tests/live_integration.rs`.
+- Shared speech-synthesis test fixtures under `tests/common/mod.rs` that keep generated artifacts inside `target/test-artifacts/`.
+
 ## [v0.5.1]
 
 ### Added
