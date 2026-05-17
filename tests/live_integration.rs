@@ -4,6 +4,7 @@ use soundanalysis::{
     start_live_classification, Classification, LiveClassification, SAError, StreamUpdate,
 };
 
+#[allow(clippy::missing_const_for_fn)]
 fn assert_send_sync<T: Send + Sync>() {}
 
 #[test]
@@ -31,7 +32,7 @@ fn live_classification_starts_or_reports_analysis_failure() {
             assert!(
                 !message.trim().is_empty(),
                 "expected an explanatory live-analysis error"
-            )
+            );
         }
         Err(other) => panic!("unexpected live classification error: {other}"),
     }

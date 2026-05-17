@@ -1,7 +1,7 @@
 //! Async file analysis example
 //!
 //! This example demonstrates how to use the async API to analyze audio files.
-//! Run with: cargo run --example 04_async_classify_file --features async
+//! Run with: cargo run --example `04_async_classify_file` --features async
 
 use soundanalysis::async_api::AsyncAudioFileAnalyzer;
 use soundanalysis::ClassifySoundRequest;

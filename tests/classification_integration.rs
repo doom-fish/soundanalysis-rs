@@ -5,6 +5,7 @@ mod common;
 use soundanalysis::{classify_file, known_classifications};
 
 #[test]
+#[allow(clippy::float_cmp)]
 fn classify_file_returns_ranked_results_for_generated_speech(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let audio = common::synthesize_speech(
