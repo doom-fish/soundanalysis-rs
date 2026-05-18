@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.6.2] - 2026-05-18
+
+- Widen doom-fish-utils version bound to `<0.3` so 0.2.x resolves.
+
 ## [v0.6.1]
 
 ### Fixed
