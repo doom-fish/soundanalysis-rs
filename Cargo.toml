@@ -1,6 +1,6 @@
 [package]
 name = "soundanalysis"
-version = "0.6.2"
+version = "0.6.3"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/doom-fish/soundanalysis-rs"
@@ -42,7 +42,7 @@ stream = ["analyze_file"]
 async = []
 
 [dependencies]
-doom-fish-utils = { path = "../doom-fish-utils", version = ">=0.1, <0.3" }
+doom-fish-utils = { path = "../doom-fish-utils", version = ">=0.1, <0.4" }
 
 [dev-dependencies]
 regex-lite = "0.1"
