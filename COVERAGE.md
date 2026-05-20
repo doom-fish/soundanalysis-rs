@@ -1,6 +1,8 @@
 # SoundAnalysis.framework coverage audit
 
-Audited against the macOS `SoundAnalysis.framework` headers shipped in the Xcode 26.2 SDK (`MacOSX26.2.sdk`).
+Audited against the macOS `SoundAnalysis.framework` headers shipped in the Xcode 26.5 SDK (`MacOSX26.5.sdk`).
+
+Phase 32 also adds executor-agnostic async wrappers for both `SNAudioFileAnalyzer` completion handlers and `SNAudioStreamAnalyzer` observer flows.
 
 | Header | Apple API | Rust surface | Status | Notes |
 | --- | --- | --- | --- | --- |
@@ -26,10 +28,10 @@ Audited against the macOS `SoundAnalysis.framework` headers shipped in the Xcode
 | `SNAnalyzer.h` | `SNAudioFileAnalyzer.removeRequest(_:)` | `AudioFileAnalyzer::remove_request` | ✅ implemented | Removes the request and drops the associated observer state. |
 | `SNAnalyzer.h` | `SNAudioFileAnalyzer.removeAllRequests()` | `AudioFileAnalyzer::remove_all_requests` | ✅ implemented | Clears all request/observer pairs. |
 | `SNAnalyzer.h` | `SNAudioFileAnalyzer.analyze()` | `AudioFileAnalyzer::analyze` | ✅ implemented | Synchronous analysis errors are surfaced as `SAError`. |
-| `SNAnalyzer.h` | `SNAudioFileAnalyzer.analyzeWithCompletionHandler(_:)` | `AudioFileAnalyzer::analyze_with_completion_handler` | ✅ implemented | Swift async completion is bridged back to sync Rust with `DispatchSemaphore`. |
+| `SNAnalyzer.h` | `SNAudioFileAnalyzer.analyzeWithCompletionHandler(_:)` | `AudioFileAnalyzer::analyze_with_completion_handler`, `AsyncAudioFileAnalyzer::analyze` | ✅ implemented | Exposed both as the direct completion-handler bridge and as an executor-agnostic future. |
 | `SNAnalyzer.h` | `SNAudioFileAnalyzer.cancelAnalysis()` | `AudioFileAnalyzer::cancel_analysis` | ✅ implemented | Cancellation is exposed directly. |
-| `SNAnalyzer.h` | `SNAudioStreamAnalyzer.initWithFormat(_:)` | `AudioStreamAnalyzer::new`, `SNAudioStreamAnalyzer` | ✅ implemented | Accepts validated PCM formats only. |
-| `SNAnalyzer.h` | `SNAudioStreamAnalyzer.addRequest(_:withObserver:error:)` | `AudioStreamAnalyzer::add_request` | ✅ implemented | Observer lifecycle mirrors the file analyzer surface. |
+| `SNAnalyzer.h` | `SNAudioStreamAnalyzer.initWithFormat(_:)` | `AudioStreamAnalyzer::new`, `AsyncAudioStreamAnalyzer`, `SNAudioStreamAnalyzer` | ✅ implemented | Accepts validated PCM formats only. |
+| `SNAnalyzer.h` | `SNAudioStreamAnalyzer.addRequest(_:withObserver:error:)` | `AudioStreamAnalyzer::add_request`, `AsyncAudioStreamAnalyzer::add_request_stream` | ✅ implemented | Observer lifecycle mirrors the file analyzer surface, and the async wrapper turns callbacks into a bounded event stream. |
 | `SNAnalyzer.h` | `SNAudioStreamAnalyzer.removeRequest(_:)` | `AudioStreamAnalyzer::remove_request` | ✅ implemented | Removes a single live-stream request. |
 | `SNAnalyzer.h` | `SNAudioStreamAnalyzer.removeAllRequests()` | `AudioStreamAnalyzer::remove_all_requests` | ✅ implemented | Clears all live-stream requests. |
 | `SNAnalyzer.h` | `SNAudioStreamAnalyzer.analyzeAudioBuffer(_:atAudioFramePosition:)` | `AudioStreamAnalyzer::analyze_audio_buffer` | ✅ implemented | Interleaved and planar PCM layouts are converted to `AVAudioPCMBuffer` in Swift. |
@@ -45,6 +47,6 @@ Audited against the macOS `SoundAnalysis.framework` headers shipped in the Xcode
 | `SNClassificationResult.h` | `SNClassificationResult.classifications` | `ClassificationResult::classifications`, `SNClassificationResult` | ✅ implemented | Ordered exactly as SoundAnalysis returns them. |
 | `SNClassificationResult.h` | `SNClassificationResult.timeRange` | `ClassificationResult::{time_start,time_duration,time_range()}` | ✅ implemented | Time range is available both as flattened seconds and as the reusable `TimeRange` / `SNTimeRange` wrapper. |
 | `SNClassificationResult.h` | `SNClassificationResult.classificationForIdentifier(_:)` | `ClassificationResult::classification_for_identifier` | ✅ implemented | Mirrors the framework helper. |
-| Requested audit target | `SNDetectSoundEventRequest` | — | ⏭️ skipped | No public `SNDetectSoundEventRequest` symbol exists in the Xcode 26.2 SoundAnalysis headers or module interfaces. |
-| Requested audit target | `SNAcousticFeaturePrintRequest` | — | ⏭️ skipped | No public `SNAcousticFeaturePrintRequest` symbol exists in the Xcode 26.2 SoundAnalysis headers or module interfaces. |
-| Requested audit target | `SNAcousticFeaturePrint` | — | ⏭️ skipped | No public `SNAcousticFeaturePrint` symbol exists in the Xcode 26.2 SoundAnalysis headers or module interfaces. |
+| Requested audit target | `SNDetectSoundEventRequest` | — | ⏭️ skipped | No public `SNDetectSoundEventRequest` symbol exists in the Xcode 26.5 SoundAnalysis headers or module interfaces. |
+| Requested audit target | `SNAcousticFeaturePrintRequest` | — | ⏭️ skipped | No public `SNAcousticFeaturePrintRequest` symbol exists in the Xcode 26.5 SoundAnalysis headers or module interfaces. |
+| Requested audit target | `SNAcousticFeaturePrint` | — | ⏭️ skipped | No public `SNAcousticFeaturePrint` symbol exists in the Xcode 26.5 SoundAnalysis headers or module interfaces. |

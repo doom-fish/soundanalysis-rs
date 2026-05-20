@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.6.4] - 2026-05-20
+
+- Phase 32 completeness + async sweep.
+- Added `AsyncAudioStreamAnalyzer`, `AudioStreamAnalysisStream`, and `AudioStreamAnalysisEvent` for bounded async streaming over `SNAudioStreamAnalyzer` observer callbacks.
+- Refreshed the coverage docs against `MacOSX26.5.sdk`.
+
 ## [0.6.3] - 2026-05-20
 
 - Widen `doom-fish-utils` dependency bound to `<0.4` so the 0.3.x SPSC-ring release resolves cleanly. No source changes.

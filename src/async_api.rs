@@ -8,6 +8,7 @@
 //! | Type | Description |
 //! |------|-------------|
 //! | [`AsyncAudioFileAnalyzer`] | Async file analysis with completion callback |
+//! | [`AsyncAudioStreamAnalyzer`] | Async stream-analyzer wrapper with event streams |
 //!
 //! ## Runtime Agnostic Design
 //!
@@ -45,12 +46,16 @@
 //!
 //! ## Note on Delegates
 //!
-//! `SNAudioStreamAnalyzer` uses a continuous delegate pattern (fires multiple times).
-//! This is deferred to Tier 2 for a Stream-based API. For now, use the blocking
-//! `AudioStreamAnalyzer` if you need streaming analysis.
+//! `SNAudioStreamAnalyzer` is exposed here through a bounded async event stream.
+//! Live microphone helpers in [`crate::live`] remain available for direct callback-based use.
 
+use crate::classifier::ClassificationResult;
 use crate::error::SAError;
+use crate::observer::ResultsObserverFns;
+use crate::request::ClassifySoundRequest;
+use crate::streaming::{AudioStreamAnalyzer, AudioStreamFormat, PcmBuffer};
 use doom_fish_utils::completion::{error_from_cstr, AsyncCompletion, AsyncCompletionFuture};
+use doom_fish_utils::stream::{BoundedAsyncStream, NextItem};
 use std::ffi::c_void;
 use std::future::Future;
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -103,6 +108,53 @@ pub struct AsyncAudioFileAnalyzer {
     path: std::ffi::CString,
 }
 
+/// One event produced by [`AsyncAudioStreamAnalyzer`].
+#[derive(Debug, Clone, PartialEq)]
+pub enum AudioStreamAnalysisEvent {
+    Result(ClassificationResult),
+    Error(SAError),
+    Complete,
+}
+
+/// Async stream of [`AudioStreamAnalysisEvent`] values.
+#[derive(Debug)]
+pub struct AudioStreamAnalysisStream {
+    inner: BoundedAsyncStream<AudioStreamAnalysisEvent>,
+}
+
+impl AudioStreamAnalysisStream {
+    #[must_use]
+    pub const fn next(&self) -> NextItem<'_, AudioStreamAnalysisEvent> {
+        self.inner.next()
+    }
+
+    #[must_use]
+    pub fn try_next(&self) -> Option<AudioStreamAnalysisEvent> {
+        self.inner.try_next()
+    }
+
+    #[must_use]
+    pub fn buffered_count(&self) -> usize {
+        self.inner.buffered_count()
+    }
+
+    #[must_use]
+    pub fn capacity(&self) -> usize {
+        self.inner.capacity()
+    }
+
+    #[must_use]
+    pub fn is_closed(&self) -> bool {
+        self.inner.is_closed()
+    }
+}
+
+/// Async wrapper around [`AudioStreamAnalyzer`].
+#[derive(Debug)]
+pub struct AsyncAudioStreamAnalyzer {
+    inner: AudioStreamAnalyzer,
+}
+
 impl AsyncAudioFileAnalyzer {
     /// Create a new async file analyzer for the given audio path
     ///
@@ -145,5 +197,77 @@ impl AsyncAudioFileAnalyzer {
             );
         }
         AnalyzeFileFuture { inner: future }
+    }
+}
+
+impl AsyncAudioStreamAnalyzer {
+    /// Create a new async stream analyzer for the supplied audio format.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `SoundAnalysis` cannot create the analyzer.
+    pub fn new(format: AudioStreamFormat) -> Result<Self, SAError> {
+        Ok(Self {
+            inner: AudioStreamAnalyzer::new(format)?,
+        })
+    }
+
+    #[must_use]
+    pub fn format(&self) -> AudioStreamFormat {
+        self.inner.format()
+    }
+
+    /// Attach a request and receive its observer callbacks as an async stream.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request cannot be attached to the analyzer.
+    pub fn add_request_stream(
+        &mut self,
+        request: &ClassifySoundRequest,
+        capacity: usize,
+    ) -> Result<AudioStreamAnalysisStream, SAError> {
+        let (stream, sender) = BoundedAsyncStream::new(capacity);
+        let result_sender = sender.clone();
+        let error_sender = sender.clone();
+        let complete_sender = sender;
+        self.inner.add_request(
+            request,
+            ResultsObserverFns::new(move |_, result| {
+                result_sender.push(AudioStreamAnalysisEvent::Result(result));
+            })
+            .on_error(move |_, error| {
+                error_sender.push(AudioStreamAnalysisEvent::Error(error));
+            })
+            .on_complete(move |_| {
+                complete_sender.push(AudioStreamAnalysisEvent::Complete);
+            }),
+        )?;
+        Ok(AudioStreamAnalysisStream { inner: stream })
+    }
+
+    pub fn remove_request(&mut self, request: &ClassifySoundRequest) {
+        self.inner.remove_request(request);
+    }
+
+    pub fn remove_all_requests(&mut self) {
+        self.inner.remove_all_requests();
+    }
+
+    /// Feed a PCM buffer into the analyzer.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the buffer shape or format does not match the analyzer.
+    pub fn analyze_audio_buffer(
+        &mut self,
+        buffer: PcmBuffer<'_>,
+        audio_frame_position: i64,
+    ) -> Result<(), SAError> {
+        self.inner.analyze_audio_buffer(buffer, audio_frame_position)
+    }
+
+    pub fn complete_analysis(&mut self) {
+        self.inner.complete_analysis();
     }
 }

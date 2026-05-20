@@ -1,6 +1,6 @@
-# soundanalysis-rs coverage audit (vs MacOSX26.2.sdk)
+# soundanalysis-rs coverage audit (vs MacOSX26.5.sdk)
 
-Audited against `SoundAnalysis.framework` in Xcode 26.2 (`MacOSX26.2.sdk`).
+Audited against `SoundAnalysis.framework` in Xcode 26.5 (`MacOSX26.5.sdk`).
 
 This audit counts top-level exported SoundAnalysis types/constants/protocols **and** the public Objective-C properties/methods on those interfaces/protocols, excluding `NS_UNAVAILABLE` initializers. The crate’s existing `tests/api_coverage.rs` already verifies the request/result/analyzer member surface; this document extends that audit to the full framework surface, including exported error symbols.
 
@@ -23,9 +23,9 @@ COVERAGE_PCT: 100.0%
 | `SNResultsObserving.requestDidComplete(_:)` | protocol method | `SNResult.h` | `ResultsObserver::did_complete` |
 | `SNErrorDomain` | exported constant | `SNError.h` | `error_domain()`, `SNErrorDomain()` |
 | `SNErrorCode` | error enum typedef | `SNError.h` | `ErrorCode`, `SNErrorCode` |
-| `SNAudioStreamAnalyzer` | interface | `SNAnalyzer.h` | `AudioStreamAnalyzer`, `SNAudioStreamAnalyzer` |
+| `SNAudioStreamAnalyzer` | interface | `SNAnalyzer.h` | `AudioStreamAnalyzer`, `AsyncAudioStreamAnalyzer`, `SNAudioStreamAnalyzer` |
 | `SNAudioStreamAnalyzer.initWithFormat(_:)` | initializer | `SNAnalyzer.h` | `AudioStreamAnalyzer::new` |
-| `SNAudioStreamAnalyzer.addRequest(_:withObserver:error:)` | method | `SNAnalyzer.h` | `AudioStreamAnalyzer::add_request` |
+| `SNAudioStreamAnalyzer.addRequest(_:withObserver:error:)` | method | `SNAnalyzer.h` | `AudioStreamAnalyzer::add_request` / `AsyncAudioStreamAnalyzer::add_request_stream` |
 | `SNAudioStreamAnalyzer.removeRequest(_:)` | method | `SNAnalyzer.h` | `AudioStreamAnalyzer::remove_request` |
 | `SNAudioStreamAnalyzer.removeAllRequests()` | method | `SNAnalyzer.h` | `AudioStreamAnalyzer::remove_all_requests` |
 | `SNAudioStreamAnalyzer.analyzeAudioBuffer(_:atAudioFramePosition:)` | method | `SNAnalyzer.h` | `AudioStreamAnalyzer::analyze_audio_buffer` |
@@ -36,7 +36,7 @@ COVERAGE_PCT: 100.0%
 | `SNAudioFileAnalyzer.removeRequest(_:)` | method | `SNAnalyzer.h` | `AudioFileAnalyzer::remove_request` |
 | `SNAudioFileAnalyzer.removeAllRequests()` | method | `SNAnalyzer.h` | `AudioFileAnalyzer::remove_all_requests` |
 | `SNAudioFileAnalyzer.analyze()` | method | `SNAnalyzer.h` | `AudioFileAnalyzer::analyze` |
-| `SNAudioFileAnalyzer.analyzeWithCompletionHandler(_:)` | method | `SNAnalyzer.h` | `AudioFileAnalyzer::analyze_with_completion_handler` |
+| `SNAudioFileAnalyzer.analyzeWithCompletionHandler(_:)` | method | `SNAnalyzer.h` | `AudioFileAnalyzer::analyze_with_completion_handler` / `AsyncAudioFileAnalyzer::analyze` |
 | `SNAudioFileAnalyzer.cancelAnalysis()` | method | `SNAnalyzer.h` | `AudioFileAnalyzer::cancel_analysis` |
 | `SNTimeDurationConstraintType` | enum typedef | `SNTimeDurationConstraint.h` | `TimeDurationConstraintType` |
 | `SNTimeDurationConstraint` | interface | `SNTimeDurationConstraint.h` | `TimeDurationConstraint`, `SNTimeDurationConstraint` |

@@ -2,7 +2,7 @@
 
 Safe Rust bindings for Apple's [SoundAnalysis](https://developer.apple.com/documentation/soundanalysis) framework on macOS.
 
-> **Status:** v0.6.0 adds the async API (Tier 1) with `AsyncAudioFileAnalyzer` for non-blocking file analysis. v0.5.2 audited the full public macOS `SoundAnalysis.framework` surface against the Xcode 26.2 SDK. See [`COVERAGE.md`](COVERAGE.md) for complete API mapping.
+> **Status:** v0.6.4 keeps full public macOS `SoundAnalysis.framework` coverage against the Xcode 26.5 SDK and expands the Tier-1 async layer with both `AsyncAudioFileAnalyzer` and `AsyncAudioStreamAnalyzer`. See [`COVERAGE.md`](COVERAGE.md) for complete API mapping.
 
 ## Quick start
 
@@ -68,7 +68,12 @@ For real-time use, `AudioStreamAnalyzer` accepts interleaved or planar PCM buffe
 
 ## Async API
 
-The `async` feature provides `AsyncAudioFileAnalyzer` for non-blocking audio file analysis:
+The `async` feature now provides:
+
+- `AsyncAudioFileAnalyzer` for non-blocking audio file analysis
+- `AsyncAudioStreamAnalyzer` + `AudioStreamAnalysisStream` for bounded async event streams over `SNAudioStreamAnalyzer`
+
+`AsyncAudioFileAnalyzer` looks like this:
 
 ```rust,ignore
 use soundanalysis::async_api::AsyncAudioFileAnalyzer;
@@ -82,7 +87,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-The async API is **executor-agnostic** — it works with any async runtime (Tokio, async-std, smol, etc.).
+The async API is **executor-agnostic** — it works with any async runtime (Tokio, async-std, smol, etc.). For streaming analysis, poll `AudioStreamAnalysisStream::next()` / `try_next()` and handle `AudioStreamAnalysisEvent::{Result, Error, Complete}` values.
 
 ## Pipeline composition
 
