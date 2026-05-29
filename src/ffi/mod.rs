@@ -58,6 +58,40 @@ pub struct StreamBufferRaw {
     pub planar_data: *const *const c_void,
 }
 
+// MARK: - ABI Layout Assertions
+//
+// The `#[repr(C)]` structs above cross the Rust <-> Swift `@_cdecl` FFI
+// boundary either by value, via packed buffers, or by being read directly
+// from a raw pointer (e.g. `ClassificationRaw` in the live trampoline). Their
+// Swift counterparts live in
+// `swift-bridge/Sources/SoundAnalysisBridge/Core.swift`
+// (`SAClassificationRaw`, `SAClassificationResultRaw`,
+// `SATimeDurationConstraintRaw`, `SAStreamFormatRaw`, `SAStreamBufferRaw`).
+//
+// These compile-time assertions pin the exact ABI shared with Swift: any change
+// to a field type, field order, or padding fails the build immediately instead
+// of silently corrupting marshalled data at runtime. The crate's MSRV (1.76)
+// predates `offset_of!` (stable in 1.77), so we pin size and alignment only.
+// If you change the layout here you MUST mirror it in Core.swift (and vice
+// versa); the cross-language `sa_verify_ffi_layout` check in
+// `tests/ffi_layout_tests.rs` guards that too.
+use core::mem::{align_of, size_of};
+
+const _: () = assert!(size_of::<ClassificationRaw>() == 16);
+const _: () = assert!(align_of::<ClassificationRaw>() == 8);
+
+const _: () = assert!(size_of::<ClassificationResultRaw>() == 32);
+const _: () = assert!(align_of::<ClassificationResultRaw>() == 8);
+
+const _: () = assert!(size_of::<TimeDurationConstraintRaw>() == 40);
+const _: () = assert!(align_of::<TimeDurationConstraintRaw>() == 8);
+
+const _: () = assert!(size_of::<StreamFormatRaw>() == 24);
+const _: () = assert!(align_of::<StreamFormatRaw>() == 8);
+
+const _: () = assert!(size_of::<StreamBufferRaw>() == 40);
+const _: () = assert!(align_of::<StreamBufferRaw>() == 8);
+
 pub type ObserverResultCallback = unsafe extern "C" fn(
     user_info: *mut c_void,
     time_start: f64,
@@ -209,6 +243,13 @@ extern "C" {
         out_err: *mut *mut c_char,
     ) -> *mut c_void;
     pub fn sa_stream_stop(handle: *mut c_void);
+
+    /// Cross-language ABI check implemented in the Swift bridge.
+    ///
+    /// Returns `true` only if the Swift `MemoryLayout` (size, stride and
+    /// alignment) of every FFI struct matches the values pinned on the Rust
+    /// side. Verified by `tests/ffi_layout_tests.rs`.
+    pub fn sa_verify_ffi_layout() -> bool;
 }
 
 pub type StreamCallback = unsafe extern "C" fn(

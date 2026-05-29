@@ -9,6 +9,7 @@ use std::path::Path;
 use crate::error::{from_swift, SAError};
 use crate::ffi;
 use crate::time::{decode_constraint_raw, TimeDurationConstraint};
+use crate::utils::retained::sa_retained;
 
 mod private {
     pub trait Sealed {}
@@ -44,27 +45,14 @@ impl private::Sealed for ClassifySoundRequest {}
 impl SNRequest for ClassifySoundRequest {}
 impl AnalysisRequest for ClassifySoundRequest {}
 
-impl Clone for ClassifySoundRequest {
-    fn clone(&self) -> Self {
-        // SAFETY: sa_request_retain is a Swift bridge function that increments the
-        // retain count on the underlying SNClassifySoundRequest. The function is called
-        // with a valid pointer (self.ptr), and the returned pointer is valid for the
-        // lifetime of the enclosing ClassifySoundRequest. Never returns null on success.
-        let ptr = unsafe { ffi::sa_request_retain(self.ptr.as_ptr()) };
-        Self {
-            ptr: NonNull::new(ptr).expect("sa_request_retain returned null"),
-        }
-    }
-}
-
-impl Drop for ClassifySoundRequest {
-    fn drop(&mut self) {
-        // SAFETY: sa_request_release is a Swift bridge function that decrements the
-        // retain count on the underlying SNClassifySoundRequest. We only call this
-        // once per ClassifySoundRequest (in Drop), matching the single retain in Clone.
-        unsafe { ffi::sa_request_release(self.ptr.as_ptr()) };
-    }
-}
+// `Clone` retains and `Drop` releases the underlying `SNClassifySoundRequest`,
+// matching the single retain in `clone`. Consolidated via `sa_retained!`.
+sa_retained!(
+    ClassifySoundRequest,
+    field = ptr,
+    retain = ffi::sa_request_retain,
+    release = ffi::sa_request_release,
+);
 
 /// Apple-style alias for [`ClassifySoundRequest`].
 pub type SNClassifySoundRequest = ClassifySoundRequest;
@@ -107,9 +95,7 @@ impl ClassifySoundRequest {
 
         let mut request = ptr::null_mut();
         let mut err = ptr::null_mut();
-        let status = unsafe {
-            ffi::sa_request_create_model(path.as_ptr(), &mut request, &mut err)
-        };
+        let status = unsafe { ffi::sa_request_create_model(path.as_ptr(), &mut request, &mut err) };
         if status != ffi::status::OK {
             return Err(unsafe { from_swift(status, err) });
         }
@@ -153,9 +139,8 @@ impl ClassifySoundRequest {
         }
 
         let mut err = ptr::null_mut();
-        let status = unsafe {
-            ffi::sa_request_set_window_duration(self.ptr.as_ptr(), seconds, &mut err)
-        };
+        let status =
+            unsafe { ffi::sa_request_set_window_duration(self.ptr.as_ptr(), seconds, &mut err) };
         if status != ffi::status::OK {
             return Err(unsafe { from_swift(status, err) });
         }

@@ -115,6 +115,30 @@ public struct SAStreamBufferRaw {
     public var planarData: UnsafePointer<UnsafeRawPointer?>?
 }
 
+// MARK: - FFI Layout Verification
+
+/// Cross-language ABI check called from Rust's `tests/ffi_layout_tests.rs`.
+///
+/// Returns `true` only if the Swift `MemoryLayout` of every FFI struct matches
+/// the values pinned on the Rust side via the `const _: () = assert!(...)`
+/// checks in `src/ffi/mod.rs`. Rust's `size_of` includes trailing padding, so
+/// it is compared against Swift's `.stride` (not `.size`). If the layouts ever
+/// drift apart this returns `false` and the Rust test fails, flagging a real
+/// ABI mismatch.
+@_cdecl("sa_verify_ffi_layout")
+public func verifyFFILayout() -> Bool {
+    return MemoryLayout<SAClassificationRaw>.stride == 16
+        && MemoryLayout<SAClassificationRaw>.alignment == 8
+        && MemoryLayout<SAClassificationResultRaw>.stride == 32
+        && MemoryLayout<SAClassificationResultRaw>.alignment == 8
+        && MemoryLayout<SATimeDurationConstraintRaw>.stride == 40
+        && MemoryLayout<SATimeDurationConstraintRaw>.alignment == 8
+        && MemoryLayout<SAStreamFormatRaw>.stride == 24
+        && MemoryLayout<SAStreamFormatRaw>.alignment == 8
+        && MemoryLayout<SAStreamBufferRaw>.stride == 40
+        && MemoryLayout<SAStreamBufferRaw>.alignment == 8
+}
+
 // MARK: - Object retain/release helpers
 
 @inline(__always)

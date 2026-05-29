@@ -24,6 +24,7 @@ pub mod ffi;
 pub mod observer;
 pub mod request;
 pub mod time;
+pub(crate) mod utils;
 
 #[cfg(feature = "analyze_file")]
 #[cfg_attr(docsrs, doc(cfg(feature = "analyze_file")))]

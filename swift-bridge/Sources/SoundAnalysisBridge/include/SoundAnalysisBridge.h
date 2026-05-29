@@ -1,3 +1,0 @@
-#ifndef SOUND_ANALYSIS_BRIDGE_H
-#define SOUND_ANALYSIS_BRIDGE_H
-#endif

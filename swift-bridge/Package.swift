@@ -14,8 +14,7 @@ let package = Package(
     targets: [
         .target(
             name: "SoundAnalysisBridge",
-            path: "Sources/SoundAnalysisBridge",
-            publicHeadersPath: "include"
+            path: "Sources/SoundAnalysisBridge"
         ),
     ]
 )

@@ -25,6 +25,7 @@ pub struct StreamUpdate {
 #[allow(clippy::type_complexity)]
 pub struct LiveClassification {
     handle: *mut c_void,
+    callback_ptr: *const StreamCb,
     _callback: Arc<Mutex<Box<dyn FnMut(StreamUpdate) + Send + 'static>>>,
 }
 
@@ -36,6 +37,15 @@ impl Drop for LiveClassification {
         if !self.handle.is_null() {
             unsafe { ffi::sa_stream_stop(self.handle) };
             self.handle = core::ptr::null_mut();
+        }
+        if !self.callback_ptr.is_null() {
+            // SAFETY: `callback_ptr` was produced by `Arc::into_raw` in
+            // `start_live_classification` and has not been reclaimed yet. The
+            // engine was stopped above, so the Swift side will no longer invoke
+            // the trampoline against this pointer. Reclaiming exactly once here
+            // balances the `Arc::into_raw` leaked on the success path.
+            unsafe { Arc::from_raw(self.callback_ptr) };
+            self.callback_ptr = core::ptr::null();
         }
     }
 }
@@ -52,7 +62,7 @@ unsafe extern "C" fn trampoline(
     if user_info.is_null() {
         return;
     }
-    
+
     let _ = catch_unwind(AssertUnwindSafe(|| {
         let cb_arc_ptr = user_info.cast::<StreamCb>();
         let typed = classifications.cast::<ffi::ClassificationRaw>();
@@ -103,8 +113,8 @@ where
     // This pointer is passed to the Swift bridge, which stores it as user_info in the
     // trampoline callback. When analysis is done, sa_stream_start either succeeds
     // (storing user_info for callbacks) or fails immediately. On failure, we reconstitute
-    // the Arc via Arc::from_raw to drop it. On success, the Arc is kept alive in
-    // LiveClassification::_callback and freed when the guard is dropped.
+    // the Arc via Arc::from_raw to drop it. On success, the leaked reference is kept in
+    // LiveClassification::callback_ptr and reclaimed via Arc::from_raw in the guard's Drop.
     let raw = Arc::into_raw(arc.clone()).cast::<c_void>().cast_mut();
     let mut err_msg: *mut core::ffi::c_char = core::ptr::null_mut();
     let handle = unsafe { ffi::sa_stream_start(trampoline, raw, &mut err_msg) };
@@ -127,6 +137,7 @@ where
     }
     Ok(LiveClassification {
         handle,
+        callback_ptr: raw.cast::<StreamCb>().cast_const(),
         _callback: arc,
     })
 }
