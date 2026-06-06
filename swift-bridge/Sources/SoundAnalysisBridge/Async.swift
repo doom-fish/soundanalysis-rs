@@ -37,9 +37,14 @@ public func audioFileAnalyzerAnalyzeAsync(
     cb: @convention(c) (Bool, UnsafePointer<CChar>?, UnsafeMutableRawPointer) -> Void,
     ctx: UnsafeMutableRawPointer
 ) {
+    // `audioPath` is owned by the Rust caller (a `CString` held by
+    // `AsyncAudioFileAnalyzer`) and is only guaranteed valid for the duration
+    // of this synchronous call. The returned future does not keep the analyzer
+    // alive, so the caller may drop it — and free the path — before the async
+    // `Task` runs. Copy the C string into an owned Swift `String` here, while
+    // the pointer is still valid, to avoid a use-after-free.
+    let pathString = String(cString: audioPath)
     Task {
-        let pathString = String(cString: audioPath)
-        
         do {
             let analyzer = try SNAudioFileAnalyzer(url: URL(fileURLWithPath: pathString))
             
