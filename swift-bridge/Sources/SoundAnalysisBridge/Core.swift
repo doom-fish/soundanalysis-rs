@@ -469,10 +469,27 @@ final class SAStreamAnalyzerBox: NSObject {
     let analyzer: SNAudioStreamAnalyzer
     let format: AVAudioFormat
     var observers: [UInt: SAObserverBox] = [:]
-    var latestAnalysisError: Error?
+    private let errorLock = NSLock()
+    private var analysisError: Error?
 
     init(format: AVAudioFormat) {
         self.format = format
         analyzer = SNAudioStreamAnalyzer(format: format)
+    }
+
+    func recordAnalysisError(_ error: Error) {
+        errorLock.lock()
+        defer { errorLock.unlock() }
+        if analysisError == nil {
+            analysisError = error
+        }
+    }
+
+    func takeAnalysisError() -> Error? {
+        errorLock.lock()
+        defer { errorLock.unlock() }
+        let error = analysisError
+        analysisError = nil
+        return error
     }
 }

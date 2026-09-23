@@ -189,9 +189,7 @@ public func sa_audio_stream_analyzer_add_request(
         errorCallback: errorCallback,
         completeCallback: completeCallback,
         recordError: { [weak box] (error: Error) in
-            if box?.latestAnalysisError == nil {
-                box?.latestAnalysisError = error
-            }
+            box?.recordAnalysisError(error)
         }
     )
 
@@ -247,9 +245,9 @@ public func sa_audio_stream_analyzer_analyze_audio_buffer(
         return fail(outErrorMessage, defaultStatus: SA_INVALID_ARGUMENT, error: error)
     }
 
-    box.latestAnalysisError = nil
+    _ = box.takeAnalysisError()
     box.analyzer.analyze(audioBuffer, atAudioFramePosition: AVAudioFramePosition(audioFramePosition))
-    if let error = box.latestAnalysisError {
+    if let error = box.takeAnalysisError() {
         return fail(outErrorMessage, status: SA_ANALYSIS_FAILED, message: "analysis failed: \(error.localizedDescription)")
     }
     return SA_OK
