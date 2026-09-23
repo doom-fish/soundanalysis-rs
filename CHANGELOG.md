@@ -1,5 +1,69 @@
 # Changelog
 
+All notable changes to this project are documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.7.0] - Unreleased
+
+### Security
+
+- The live microphone session's callback context was freed right after
+  the engine stopped while its observer still held the raw pointer and the
+  request stayed registered. The Swift observer now retains the context
+  through doom-fish-utils' `CallbackContext`, stopping removes every request
+  before the session is released, and late callbacks are ignored.
+
+### Fixed
+
+- `AsyncAudioFileAnalyzer::analyze()` was a stub that created an analyzer
+  and reported success without analyzing. It now runs
+  `analyzeWithCompletionHandler:` for the analyzer's requests and resolves
+  to `didReachEndOfFile`; dropping the future before it resolves cancels the
+  analysis.
+- `AudioStreamAnalyzer` checks PCM buffer sizes with checked arithmetic and
+  rejects empty buffers and buffers whose frame count or per-buffer byte
+  size does not fit an `AVAudioPCMBuffer`; the bridge no longer traps on
+  them or copies a wrapped byte count.
+- The live observer reports analysis failures and completion, and starting
+  without an audio input device returns an error instead of hitting an
+  `AVAudioEngine` exception.
+- The file and stream analyzer boxes record observer errors under a lock,
+  and a file analyzer rejects a second analysis or a new request while one
+  is running.
+- Stream capacity zero is rejected with `SAError::InvalidArgument` instead
+  of panicking.
+
+### Changed
+
+- **Breaking:** `start_live_classification` takes a `FnMut(LiveEvent)`
+  handler; `LiveEvent` is `Update(StreamUpdate)`, `Failed(SAError)` or
+  `Completed`.
+- **Breaking:** `AsyncAudioFileAnalyzer::new` opens the audio file, so it
+  fails for a missing file. The analyzer dereferences to `AudioFileAnalyzer`,
+  `analyze()` takes `&mut self`, and `AnalyzeFileFuture` has a lifetime and
+  resolves to `Result<bool, SAError>`.
+- **Breaking (raw FFI):** `sa_audio_file_analyzer_analyze_async` takes the
+  analyzer handle and reports status, `didReachEndOfFile` and an error
+  message; `sa_stream_start` takes error and completion callbacks and
+  context retain/release callbacks.
+- The `async` feature enables `stream`.
+- `AudioFileAnalyzer` is `Send`.
+- Requires `doom-fish-utils` `>=0.4.1, <0.5`.
+- `rust-version` is now 1.82 (was 1.76).
+
+### Added
+
+- `AsyncAudioFileAnalyzer::add_request_stream`.
+- `LiveEvent`.
+
+## [0.6.5] - 2026-06-06
+
+- The async file analyzer copies the caller's audio path before starting its
+  Task instead of reading the freed C string, and the Swift bridge gained
+  leak fixes and ABI layout assertions.
+
 ## [0.6.4] - 2026-05-20
 
 - Phase 32 completeness + async sweep.

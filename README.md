@@ -2,7 +2,16 @@
 
 Safe Rust bindings for Apple's [SoundAnalysis](https://developer.apple.com/documentation/soundanalysis) framework on macOS.
 
-> **Status:** v0.6.4 keeps full public macOS `SoundAnalysis.framework` coverage against the Xcode 26.5 SDK and expands the Tier-1 async layer with both `AsyncAudioFileAnalyzer` and `AsyncAudioStreamAnalyzer`. See [`COVERAGE.md`](COVERAGE.md) for complete API mapping.
+> **Status:** v0.7 keeps full public macOS `SoundAnalysis.framework` coverage against the Xcode 26.5 SDK (the 27.0 headers are unchanged) and provides async `AsyncAudioFileAnalyzer` and `AsyncAudioStreamAnalyzer` wrappers. See [`COVERAGE.md`](COVERAGE.md) for complete API mapping.
+
+## Installation
+
+```toml
+[dependencies]
+soundanalysis = { version = "0.7", features = ["async"] }
+```
+
+Leave out `features` if you don't need the async analyzers.
 
 ## Requirements
 
