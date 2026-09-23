@@ -22,16 +22,23 @@
 //!
 //! ### Basic Async File Analysis
 //!
-//! ```rust,ignore
-//! use soundanalysis::async_api::AsyncAudioFileAnalyzer;
+//! ```rust,no_run
+//! use soundanalysis::async_api::{AsyncAudioFileAnalyzer, AudioStreamAnalysisEvent};
+//! use soundanalysis::ClassifySoundRequest;
 //!
-//! #[tokio::main]
-//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let analyzer = AsyncAudioFileAnalyzer::new("path/to/audio.mp3")?;
-//!     analyzer.analyze().await?;
-//!     println!("Analysis complete");
-//!     Ok(())
+//! # async fn run() -> Result<(), Box<dyn std::error::Error>> {
+//! let mut analyzer = AsyncAudioFileAnalyzer::new("path/to/audio.mp3")?;
+//! let request = ClassifySoundRequest::version1()?;
+//! let events = analyzer.add_request_stream(&request, 64)?;
+//! let reached_end = analyzer.analyze().await?;
+//! while let Some(event) = events.try_next() {
+//!     if let AudioStreamAnalysisEvent::Result(result) = event {
+//!         println!("{:?}", result.top());
+//!     }
 //! }
+//! println!("analysis complete, reached end: {reached_end}");
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! ## Async vs Blocking API
@@ -50,62 +57,119 @@
 //! Live microphone helpers in [`crate::live`] remain available for direct callback-based use.
 
 use crate::classifier::ClassificationResult;
-use crate::error::SAError;
+use crate::error::{from_swift, SAError};
+use crate::file::AudioFileAnalyzer;
 use crate::observer::ResultsObserverFns;
 use crate::request::ClassifySoundRequest;
 use crate::streaming::{AudioStreamAnalyzer, AudioStreamFormat, PcmBuffer};
-use doom_fish_utils::completion::{error_from_cstr, AsyncCompletion, AsyncCompletionFuture};
+use core::ffi::c_char;
+use core::ops::{Deref, DerefMut};
+use doom_fish_utils::completion::{AsyncCompletion, AsyncCompletionFuture};
+use doom_fish_utils::panic_safe::catch_user_panic;
 use doom_fish_utils::stream::{BoundedAsyncStream, NextItem};
 use std::ffi::c_void;
 use std::future::Future;
-use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::pin::Pin;
 use std::task::{Context, Poll};
+
+type AnalysisOutcome = Result<bool, SAError>;
 
 // ============================================================================
 // AsyncAudioFileAnalyzer - True async with callback-based FFI
 // ============================================================================
 
 /// Callback from Swift FFI for file analyzer completion
-extern "C" fn analyzer_complete_callback(
-    success: bool,
-    error: *const i8,
-    user_data: *mut c_void,
+unsafe extern "C" fn analyzer_complete_callback(
+    context: *mut c_void,
+    status: i32,
+    reached_end_of_file: bool,
+    error_message: *mut c_char,
 ) {
-    let _ = catch_unwind(AssertUnwindSafe(|| {
-        if success {
-            unsafe { AsyncCompletion::<()>::complete_ok(user_data, ()) };
-        } else {
-            let error_msg = unsafe { error_from_cstr(error) };
-            unsafe { AsyncCompletion::<()>::complete_err(user_data, error_msg) };
-        }
-    }));
+    let outcome = if status == crate::ffi::status::OK {
+        Ok(reached_end_of_file)
+    } else {
+        Err(unsafe { from_swift(status, error_message) })
+    };
+    catch_user_panic("analyzer_complete_callback", || unsafe {
+        AsyncCompletion::<AnalysisOutcome>::complete_ok(context, outcome);
+    });
 }
 
 /// Future type for async file analysis
-pub struct AnalyzeFileFuture {
-    inner: AsyncCompletionFuture<()>,
+pub struct AnalyzeFileFuture<'a> {
+    analyzer: &'a mut AsyncAudioFileAnalyzer,
+    completion: AsyncCompletionFuture<AnalysisOutcome>,
+    running: bool,
 }
 
-impl Future for AnalyzeFileFuture {
-    type Output = Result<(), SAError>;
+impl Future for AnalyzeFileFuture<'_> {
+    type Output = Result<bool, SAError>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        Pin::new(&mut self.inner)
-            .poll(cx)
-            .map(|r| r.map_err(SAError::AnalysisFailed))
+        let this = &mut *self;
+        let outcome = std::task::ready!(Pin::new(&mut this.completion).poll(cx));
+        this.running = false;
+        Poll::Ready(
+            outcome
+                .map_err(SAError::AnalysisFailed)
+                .and_then(|result| result),
+        )
+    }
+}
+
+impl Drop for AnalyzeFileFuture<'_> {
+    fn drop(&mut self) {
+        if self.running {
+            self.analyzer.inner.cancel_analysis();
+        }
     }
 }
 
 /// Async wrapper around `SNAudioFileAnalyzer`
 ///
-/// This type provides async versions of the file analysis operations.
-/// Unlike the blocking `AudioFileAnalyzer`, this doesn't retain the analyzer
-/// across calls — each `analyze()` awaits completion and then drops internally.
+/// Dereferences to [`AudioFileAnalyzer`] for request management and adds an
+/// async [`analyze`](Self::analyze) plus [`add_request_stream`](Self::add_request_stream).
 #[derive(Debug)]
 pub struct AsyncAudioFileAnalyzer {
-    /// Path to the audio file
-    path: std::ffi::CString,
+    inner: AudioFileAnalyzer,
+}
+
+impl Deref for AsyncAudioFileAnalyzer {
+    type Target = AudioFileAnalyzer;
+
+    fn deref(&self) -> &AudioFileAnalyzer {
+        &self.inner
+    }
+}
+
+impl DerefMut for AsyncAudioFileAnalyzer {
+    fn deref_mut(&mut self) -> &mut AudioFileAnalyzer {
+        &mut self.inner
+    }
+}
+
+fn analysis_stream(
+    capacity: usize,
+) -> Result<(AudioStreamAnalysisStream, ResultsObserverFns), SAError> {
+    if capacity == 0 {
+        return Err(SAError::InvalidArgument(
+            "event stream capacity must be greater than zero".into(),
+        ));
+    }
+    let (stream, sender) = BoundedAsyncStream::new(capacity);
+    let result_sender = sender.clone();
+    let error_sender = sender.clone();
+    let complete_sender = sender;
+    let observer = ResultsObserverFns::new(move |_, result| {
+        result_sender.push(AudioStreamAnalysisEvent::Result(result));
+    })
+    .on_error(move |_, error| {
+        error_sender.push(AudioStreamAnalysisEvent::Error(error));
+    })
+    .on_complete(move |_| {
+        complete_sender.push(AudioStreamAnalysisEvent::Complete);
+    });
+    Ok((AudioStreamAnalysisStream { inner: stream }, observer))
 }
 
 /// One event produced by [`AsyncAudioStreamAnalyzer`].
@@ -160,43 +224,57 @@ impl AsyncAudioFileAnalyzer {
     ///
     /// # Errors
     ///
-    /// Returns an error if the path contains invalid UTF-8 or NUL bytes.
+    /// Returns an error if the path contains invalid UTF-8 or NUL bytes, or if
+    /// `SoundAnalysis` cannot open the audio file.
     pub fn new(path: impl AsRef<std::path::Path>) -> Result<Self, SAError> {
-        let path = path
-            .as_ref()
-            .to_str()
-            .ok_or_else(|| SAError::InvalidArgument("non-UTF-8 audio path".into()))?;
-        let path = std::ffi::CString::new(path)
-            .map_err(|e| SAError::InvalidArgument(format!("audio path NUL byte: {e}")))?;
+        Ok(Self {
+            inner: AudioFileAnalyzer::new(path)?,
+        })
+    }
 
-        Ok(Self { path })
+    pub fn add_request_stream(
+        &mut self,
+        request: &ClassifySoundRequest,
+        capacity: usize,
+    ) -> Result<AudioStreamAnalysisStream, SAError> {
+        let (stream, observer) = analysis_stream(capacity)?;
+        self.inner.add_request(request, observer)?;
+        Ok(stream)
     }
 
     /// Asynchronously analyze the audio file with the added requests.
     ///
-    /// This method must be called after `add_request()` to process the audio
-    /// and invoke the observer callbacks. The future completes when analysis
-    /// is done.
+    /// Add requests first with [`add_request_stream`](Self::add_request_stream)
+    /// or [`AudioFileAnalyzer::add_request`]; their observers receive the
+    /// results while the analysis runs. The future resolves to whether the
+    /// analysis reached the end of the file, which is `false` after
+    /// [`AudioFileAnalyzer::cancel_analysis`].
     ///
     /// # Errors
     ///
-    /// Returns an error if the underlying FFI call fails or the Swift callback
-    /// signals an error.
-    pub fn analyze(&self) -> AnalyzeFileFuture {
-        let (future, ctx) = AsyncCompletion::create();
-        // SAFETY: analyzer_complete_callback receives a user_data pointer that is
-        // the AsyncCompletion context created above. The callback is called by the
-        // Swift bridge when analysis completes, and ctx is valid for the lifetime of
-        // the returned AnalyzeFileFuture (held in the inner AsyncCompletionFuture).
-        // The callback is wrapped with catch_unwind to prevent panics across FFI.
-        unsafe {
+    /// Returns an error if another analysis is still running on this analyzer
+    /// or if an observer reports an analysis failure.
+    pub fn analyze(&mut self) -> AnalyzeFileFuture<'_> {
+        let (completion, context) = AsyncCompletion::<AnalysisOutcome>::create();
+        let mut err = core::ptr::null_mut();
+        let status = unsafe {
             crate::ffi::sa_audio_file_analyzer_analyze_async(
-                self.path.as_ptr(),
+                self.inner.ptr.as_ptr(),
                 analyzer_complete_callback,
-                ctx,
-            );
+                context,
+                &raw mut err,
+            )
+        };
+        let running = status == crate::ffi::status::OK;
+        if !running {
+            let error = unsafe { from_swift(status, err) };
+            unsafe { AsyncCompletion::<AnalysisOutcome>::complete_ok(context, Err(error)) };
         }
-        AnalyzeFileFuture { inner: future }
+        AnalyzeFileFuture {
+            analyzer: self,
+            completion,
+            running,
+        }
     }
 }
 
@@ -227,23 +305,9 @@ impl AsyncAudioStreamAnalyzer {
         request: &ClassifySoundRequest,
         capacity: usize,
     ) -> Result<AudioStreamAnalysisStream, SAError> {
-        let (stream, sender) = BoundedAsyncStream::new(capacity);
-        let result_sender = sender.clone();
-        let error_sender = sender.clone();
-        let complete_sender = sender;
-        self.inner.add_request(
-            request,
-            ResultsObserverFns::new(move |_, result| {
-                result_sender.push(AudioStreamAnalysisEvent::Result(result));
-            })
-            .on_error(move |_, error| {
-                error_sender.push(AudioStreamAnalysisEvent::Error(error));
-            })
-            .on_complete(move |_| {
-                complete_sender.push(AudioStreamAnalysisEvent::Complete);
-            }),
-        )?;
-        Ok(AudioStreamAnalysisStream { inner: stream })
+        let (stream, observer) = analysis_stream(capacity)?;
+        self.inner.add_request(request, observer)?;
+        Ok(stream)
     }
 
     pub fn remove_request(&mut self, request: &ClassifySoundRequest) {
@@ -264,7 +328,8 @@ impl AsyncAudioStreamAnalyzer {
         buffer: PcmBuffer<'_>,
         audio_frame_position: i64,
     ) -> Result<(), SAError> {
-        self.inner.analyze_audio_buffer(buffer, audio_frame_position)
+        self.inner
+            .analyze_audio_buffer(buffer, audio_frame_position)
     }
 
     pub fn complete_analysis(&mut self) {

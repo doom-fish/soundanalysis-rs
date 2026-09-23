@@ -68,26 +68,34 @@ For real-time use, `AudioStreamAnalyzer` accepts interleaved or planar PCM buffe
 
 ## Async API
 
-The `async` feature now provides:
+The `async` feature (which enables `stream`) provides:
 
-- `AsyncAudioFileAnalyzer` for non-blocking audio file analysis
+- `AsyncAudioFileAnalyzer`, which dereferences to `AudioFileAnalyzer` for request management and adds an async `analyze()` and `add_request_stream()`
 - `AsyncAudioStreamAnalyzer` + `AudioStreamAnalysisStream` for bounded async event streams over `SNAudioStreamAnalyzer`
 
 `AsyncAudioFileAnalyzer` looks like this:
 
 ```rust,ignore
-use soundanalysis::async_api::AsyncAudioFileAnalyzer;
+use soundanalysis::async_api::{AsyncAudioFileAnalyzer, AudioStreamAnalysisEvent};
+use soundanalysis::ClassifySoundRequest;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let analyzer = AsyncAudioFileAnalyzer::new("path/to/audio.mp3")?;
-    analyzer.analyze().await?;
-    println!("Analysis complete");
+    let mut analyzer = AsyncAudioFileAnalyzer::new("path/to/audio.mp3")?;
+    let request = ClassifySoundRequest::version1()?;
+    let events = analyzer.add_request_stream(&request, 256)?;
+    let reached_end = analyzer.analyze().await?;
+    while let Some(AudioStreamAnalysisEvent::Result(result)) = events.try_next() {
+        println!("{:?}", result.top());
+    }
+    println!("reached end of file: {reached_end}");
     Ok(())
 }
 ```
 
-The async API is **executor-agnostic** — it works with any async runtime (Tokio, async-std, smol, etc.). For streaming analysis, poll `AudioStreamAnalysisStream::next()` / `try_next()` and handle `AudioStreamAnalysisEvent::{Result, Error, Complete}` values.
+`analyze()` resolves to whether the analysis reached the end of the file. Starting a second analysis while one is running on the same analyzer fails with `SAError::AnalysisFailed`. Dropping the future before it resolves cancels the analysis; `SNAudioFileAnalyzer` then stays cancelled and later analyses report `false`, so create a new analyzer to start over.
+
+The async API is **executor-agnostic** — it works with any async runtime (Tokio, async-std, smol, etc.). For streaming analysis, poll `AudioStreamAnalysisStream::next()` / `try_next()` and handle `AudioStreamAnalysisEvent::{Result, Error, Complete}` values. A stream capacity of zero is rejected with `SAError::InvalidArgument`.
 
 ## Pipeline composition
 

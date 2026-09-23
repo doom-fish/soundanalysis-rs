@@ -39,7 +39,7 @@ crate-type = ["lib"]
 default = ["analyze_file", "stream"]
 analyze_file = []
 stream = ["analyze_file"]
-async = []
+async = ["stream"]
 
 [dependencies]
 doom-fish-utils = { path = "../doom-fish-utils", version = ">=0.4.1, <0.5" }

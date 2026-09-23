@@ -1,62 +1,38 @@
-// Async APIs for SoundAnalysis framework
-
 import Foundation
 import SoundAnalysis
 
-// MARK: - Thread-safe result holder
+public typealias SAAnalyzeCompletionCallback = @convention(c) (
+    UnsafeMutableRawPointer?,
+    Int32,
+    Bool,
+    UnsafeMutablePointer<CChar>?
+) -> Void
 
-private class ResultHolder<T> {
-    private let lock = NSLock()
-    private var _value: T?
-    private var _error: String?
-
-    var value: T? {
-        get { lock.lock(); defer { lock.unlock() }; return _value }
-        set { lock.lock(); defer { lock.unlock() }; _value = newValue }
-    }
-
-    var error: String? {
-        get { lock.lock(); defer { lock.unlock() }; return _error }
-        set { lock.lock(); defer { lock.unlock() }; _error = newValue }
-    }
-}
-
-// MARK: - SNAudioFileAnalyzer: Async Analysis
-
-/// Async wrapper for SNAudioFileAnalyzer.analyze() using a Task
-/// 
-/// This thunk:
-/// 1. Creates an SNAudioFileAnalyzer from the audio path
-/// 2. Launches a Task that performs analysis
-/// 3. Fires the completion callback when done
-///
-/// The caller is responsible for adding requests before calling this.
 @_cdecl("sa_audio_file_analyzer_analyze_async")
-public func audioFileAnalyzerAnalyzeAsync(
-    audioPath: UnsafePointer<CChar>,
-    cb: @convention(c) (Bool, UnsafePointer<CChar>?, UnsafeMutableRawPointer) -> Void,
-    ctx: UnsafeMutableRawPointer
-) {
-    // `audioPath` is owned by the Rust caller (a `CString` held by
-    // `AsyncAudioFileAnalyzer`) and is only guaranteed valid for the duration
-    // of this synchronous call. The returned future does not keep the analyzer
-    // alive, so the caller may drop it — and free the path — before the async
-    // `Task` runs. Copy the C string into an owned Swift `String` here, while
-    // the pointer is still valid, to avoid a use-after-free.
-    let pathString = String(cString: audioPath)
-    Task {
-        do {
-            let analyzer = try SNAudioFileAnalyzer(url: URL(fileURLWithPath: pathString))
-            
-            // For now, we just mark it as successful since the analyzer was created.
-            // In a real implementation, you would add the request and call analyze().
-            // This is a simplified version that just tests the completion callback.
-            cb(true, nil, ctx)
-        } catch {
-            let errorMsg = error.localizedDescription
-            errorMsg.withCString { cstr in
-                cb(false, cstr, ctx)
-            }
+public func sa_audio_file_analyzer_analyze_async(
+    _ analyzer: UnsafeMutableRawPointer?,
+    _ completion: @escaping SAAnalyzeCompletionCallback,
+    _ context: UnsafeMutableRawPointer?,
+    _ outErrorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+) -> Int32 {
+    guard let analyzer else {
+        return fail(outErrorMessage, status: SA_INVALID_ARGUMENT, message: "null analyzer")
+    }
+    let box: SAFileAnalyzerBox = saBorrow(analyzer, as: SAFileAnalyzerBox.self)
+    guard box.beginAnalysis() else {
+        return fail(outErrorMessage, status: SA_ANALYSIS_FAILED, message: "analysis already in progress")
+    }
+    box.analyzer.analyze { reachedEndOfFile in
+        if let error = box.finishAnalysis() {
+            completion(
+                context,
+                SA_ANALYSIS_FAILED,
+                reachedEndOfFile,
+                ffiString("analysis failed: \(error.localizedDescription)")
+            )
+        } else {
+            completion(context, SA_OK, reachedEndOfFile, nil)
         }
     }
+    return SA_OK
 }

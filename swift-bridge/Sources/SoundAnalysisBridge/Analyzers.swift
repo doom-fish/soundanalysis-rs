@@ -44,6 +44,9 @@ public func sa_audio_file_analyzer_add_request(
     }
 
     let box: SAFileAnalyzerBox = saBorrow(analyzer, as: SAFileAnalyzerBox.self)
+    guard !box.isAnalyzing else {
+        return fail(outErrorMessage, status: SA_ANALYSIS_FAILED, message: "analysis already in progress")
+    }
     let requestObject: SNClassifySoundRequest = saBorrow(request, as: SNClassifySoundRequest.self)
     let key = UInt(bitPattern: request)
     let observer = SAObserverBox(
@@ -52,9 +55,7 @@ public func sa_audio_file_analyzer_add_request(
         errorCallback: errorCallback,
         completeCallback: completeCallback,
         recordError: { [weak box] (error: Error) in
-            if box?.latestAnalysisError == nil {
-                box?.latestAnalysisError = error
-            }
+            box?.recordAnalysisError(error)
         }
     )
 
@@ -96,9 +97,11 @@ public func sa_audio_file_analyzer_analyze(
         return fail(outErrorMessage, status: SA_INVALID_ARGUMENT, message: "null analyzer")
     }
     let box: SAFileAnalyzerBox = saBorrow(analyzer, as: SAFileAnalyzerBox.self)
-    box.latestAnalysisError = nil
+    guard box.beginAnalysis() else {
+        return fail(outErrorMessage, status: SA_ANALYSIS_FAILED, message: "analysis already in progress")
+    }
     box.analyzer.analyze()
-    if let error = box.latestAnalysisError {
+    if let error = box.finishAnalysis() {
         return fail(outErrorMessage, status: SA_ANALYSIS_FAILED, message: "analysis failed: \(error.localizedDescription)")
     }
     return SA_OK
@@ -114,16 +117,18 @@ public func sa_audio_file_analyzer_analyze_with_completion(
         return fail(outErrorMessage, status: SA_INVALID_ARGUMENT, message: "null analyzer")
     }
     let box: SAFileAnalyzerBox = saBorrow(analyzer, as: SAFileAnalyzerBox.self)
+    guard box.beginAnalysis() else {
+        return fail(outErrorMessage, status: SA_ANALYSIS_FAILED, message: "analysis already in progress")
+    }
     let semaphore = DispatchSemaphore(value: 0)
     var didReachEndOfFile = false
-    box.latestAnalysisError = nil
     box.analyzer.analyze { reachedEndOfFile in
         didReachEndOfFile = reachedEndOfFile
         semaphore.signal()
     }
     semaphore.wait()
     outDidReachEndOfFile.pointee = didReachEndOfFile
-    if let error = box.latestAnalysisError {
+    if let error = box.finishAnalysis() {
         return fail(outErrorMessage, status: SA_ANALYSIS_FAILED, message: "analysis failed: \(error.localizedDescription)")
     }
     return SA_OK

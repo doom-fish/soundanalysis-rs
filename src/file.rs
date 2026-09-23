@@ -18,9 +18,11 @@ use crate::request::ClassifySoundRequest;
 /// Safe wrapper around `SNAudioFileAnalyzer`.
 #[derive(Debug)]
 pub struct AudioFileAnalyzer {
-    ptr: NonNull<c_void>,
+    pub(crate) ptr: NonNull<c_void>,
     observers: ObserverMap,
 }
+
+unsafe impl Send for AudioFileAnalyzer {}
 
 impl AudioFileAnalyzer {
     pub fn new(path: impl AsRef<Path>) -> Result<Self, SAError> {

@@ -105,6 +105,13 @@ pub type ObserverErrorCallback =
 
 pub type ObserverCompleteCallback = unsafe extern "C" fn(user_info: *mut c_void);
 
+pub type AnalyzeCompletionCallback = unsafe extern "C" fn(
+    context: *mut c_void,
+    status: i32,
+    reached_end_of_file: bool,
+    error_message: *mut c_char,
+);
+
 extern "C" {
     pub fn sa_string_free(s: *mut c_char);
     pub fn sa_double_array_free(array: *mut f64, count: usize);
@@ -207,10 +214,11 @@ extern "C" {
     ) -> i32;
     pub fn sa_audio_file_analyzer_cancel_analysis(analyzer: *mut c_void);
     pub fn sa_audio_file_analyzer_analyze_async(
-        audio_path: *const c_char,
-        cb: unsafe extern "C" fn(bool, *const i8, *mut c_void),
-        ctx: *mut c_void,
-    );
+        analyzer: *mut c_void,
+        completion: AnalyzeCompletionCallback,
+        context: *mut c_void,
+        out_error_message: *mut *mut c_char,
+    ) -> i32;
 
     pub fn sa_audio_stream_analyzer_create(
         format: *const c_void,

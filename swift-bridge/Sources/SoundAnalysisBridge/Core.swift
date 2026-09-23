@@ -416,10 +416,42 @@ final class SAObserverBox: NSObject, SNResultsObserving {
 final class SAFileAnalyzerBox: NSObject {
     let analyzer: SNAudioFileAnalyzer
     var observers: [UInt: SAObserverBox] = [:]
-    var latestAnalysisError: Error?
+    private let stateLock = NSLock()
+    private var analyzing = false
+    private var analysisError: Error?
 
     init(url: URL) throws {
         analyzer = try SNAudioFileAnalyzer(url: url)
+    }
+
+    var isAnalyzing: Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return analyzing
+    }
+
+    func beginAnalysis() -> Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        guard !analyzing else { return false }
+        analyzing = true
+        analysisError = nil
+        return true
+    }
+
+    func finishAnalysis() -> Error? {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        analyzing = false
+        return analysisError
+    }
+
+    func recordAnalysisError(_ error: Error) {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        if analysisError == nil {
+            analysisError = error
+        }
     }
 }
 
