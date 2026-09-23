@@ -105,6 +105,8 @@ pub type ObserverErrorCallback =
 
 pub type ObserverCompleteCallback = unsafe extern "C" fn(user_info: *mut c_void);
 
+pub type ContextCallback = unsafe extern "C" fn(context: *mut c_void);
+
 pub type AnalyzeCompletionCallback = unsafe extern "C" fn(
     context: *mut c_void,
     status: i32,
@@ -247,7 +249,11 @@ extern "C" {
 
     pub fn sa_stream_start(
         callback: StreamCallback,
+        error_callback: ObserverErrorCallback,
+        complete_callback: ObserverCompleteCallback,
         user_info: *mut c_void,
+        retain: Option<ContextCallback>,
+        release: Option<ContextCallback>,
         out_err: *mut *mut c_char,
     ) -> *mut c_void;
     pub fn sa_stream_stop(handle: *mut c_void);

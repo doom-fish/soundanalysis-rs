@@ -1,12 +1,13 @@
 //! Live microphone sound classification via `SNAudioStreamAnalyzer`.
 
-use core::ffi::c_void;
-use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::sync::Arc;
-use std::sync::Mutex;
+use core::ffi::{c_char, c_void};
+use std::sync::{Mutex, PoisonError};
+
+use doom_fish_utils::callback_context::CallbackContext;
+use doom_fish_utils::panic_safe::catch_user_panic;
 
 use crate::classifier::Classification;
-use crate::error::SAError;
+use crate::error::{from_swift, SAError};
 use crate::ffi;
 
 /// One streaming classification update — a time-bucketed list of
@@ -20,13 +21,22 @@ pub struct StreamUpdate {
     pub classifications: Vec<Classification>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub enum LiveEvent {
+    Update(StreamUpdate),
+    Failed(SAError),
+    Completed,
+}
+
+type LiveHandler = Mutex<Box<dyn FnMut(LiveEvent) + Send + 'static>>;
+type LiveContext = CallbackContext<LiveHandler>;
+
 /// RAII guard for a live mic classification session. Drop to stop
 /// the engine.
-#[allow(clippy::type_complexity)]
 pub struct LiveClassification {
     handle: *mut c_void,
-    callback_ptr: *const StreamCb,
-    _callback: Arc<Mutex<Box<dyn FnMut(StreamUpdate) + Send + 'static>>>,
+    _context: LiveContext,
 }
 
 unsafe impl Send for LiveClassification {}
@@ -38,33 +48,26 @@ impl Drop for LiveClassification {
             unsafe { ffi::sa_stream_stop(self.handle) };
             self.handle = core::ptr::null_mut();
         }
-        if !self.callback_ptr.is_null() {
-            // SAFETY: `callback_ptr` was produced by `Arc::into_raw` in
-            // `start_live_classification` and has not been reclaimed yet. The
-            // engine was stopped above, so the Swift side will no longer invoke
-            // the trampoline against this pointer. Reclaiming exactly once here
-            // balances the `Arc::into_raw` leaked on the success path.
-            unsafe { Arc::from_raw(self.callback_ptr) };
-            self.callback_ptr = core::ptr::null();
-        }
     }
 }
 
-type StreamCb = Mutex<Box<dyn FnMut(StreamUpdate) + Send + 'static>>;
+unsafe fn deliver(context: *mut c_void, site: &str, event: LiveEvent) {
+    let _ = unsafe {
+        LiveContext::with(context, site, |handler| {
+            let mut handler = handler.lock().unwrap_or_else(PoisonError::into_inner);
+            handler(event);
+        })
+    };
+}
 
-unsafe extern "C" fn trampoline(
+unsafe extern "C" fn result_trampoline(
     user_info: *mut c_void,
     time_start: f64,
     time_duration: f64,
     classifications: *mut c_void,
     classification_count: usize,
 ) {
-    if user_info.is_null() {
-        return;
-    }
-
-    let _ = catch_unwind(AssertUnwindSafe(|| {
-        let cb_arc_ptr = user_info.cast::<StreamCb>();
+    catch_user_panic("live result", || {
         let typed = classifications.cast::<ffi::ClassificationRaw>();
         let mut classes = Vec::with_capacity(classification_count);
         if !typed.is_null() {
@@ -83,15 +86,30 @@ unsafe extern "C" fn trampoline(
                 });
             }
         }
-        let Ok(mut guard) = (unsafe { &*cb_arc_ptr }).lock() else {
-            return;
-        };
-        guard(StreamUpdate {
+        let update = StreamUpdate {
             time_start,
             time_duration,
             classifications: classes,
-        });
-    }));
+        };
+        unsafe { deliver(user_info, "live result", LiveEvent::Update(update)) };
+    });
+}
+
+unsafe extern "C" fn error_trampoline(
+    user_info: *mut c_void,
+    status: i32,
+    error_message: *mut c_char,
+) {
+    let error = unsafe { from_swift(status, error_message) };
+    catch_user_panic("live error", || unsafe {
+        deliver(user_info, "live error", LiveEvent::Failed(error));
+    });
+}
+
+unsafe extern "C" fn complete_trampoline(user_info: *mut c_void) {
+    catch_user_panic("live completion", || unsafe {
+        deliver(user_info, "live completion", LiveEvent::Completed);
+    });
 }
 
 /// Start live microphone classification. Returns a
@@ -105,25 +123,23 @@ unsafe extern "C" fn trampoline(
 /// Info.plist key and the user must have granted access.
 pub fn start_live_classification<F>(callback: F) -> Result<LiveClassification, SAError>
 where
-    F: FnMut(StreamUpdate) + Send + 'static,
+    F: FnMut(LiveEvent) + Send + 'static,
 {
-    let boxed: Box<dyn FnMut(StreamUpdate) + Send + 'static> = Box::new(callback);
-    let arc: Arc<StreamCb> = Arc::new(Mutex::new(boxed));
-    // SAFETY: Arc::into_raw leaks the Arc into a raw pointer, which we cast to c_void.
-    // This pointer is passed to the Swift bridge, which stores it as user_info in the
-    // trampoline callback. When analysis is done, sa_stream_start either succeeds
-    // (storing user_info for callbacks) or fails immediately. On failure, we reconstitute
-    // the Arc via Arc::from_raw to drop it. On success, the leaked reference is kept in
-    // LiveClassification::callback_ptr and reclaimed via Arc::from_raw in the guard's Drop.
-    let raw = Arc::into_raw(arc.clone()).cast::<c_void>().cast_mut();
-    let mut err_msg: *mut core::ffi::c_char = core::ptr::null_mut();
-    let handle = unsafe { ffi::sa_stream_start(trampoline, raw, &mut err_msg) };
+    let handler: LiveHandler = Mutex::new(Box::new(callback));
+    let context = LiveContext::new(handler);
+    let mut err_msg: *mut c_char = core::ptr::null_mut();
+    let handle = unsafe {
+        ffi::sa_stream_start(
+            result_trampoline,
+            error_trampoline,
+            complete_trampoline,
+            context.as_ptr(),
+            Some(LiveContext::RETAIN),
+            Some(LiveContext::RELEASE),
+            &raw mut err_msg,
+        )
+    };
     if handle.is_null() {
-        // Take back the Arc we leaked into raw so it can drop.
-        // SAFETY: raw was created from Arc::into_raw(arc.clone()) just above,
-        // and we have never called Arc::from_raw on it yet, so it's safe to
-        // reconstitute and drop.
-        unsafe { Arc::from_raw(raw.cast::<StreamCb>()) };
         let msg = if err_msg.is_null() {
             "stream start failed".to_string()
         } else {
@@ -137,7 +153,97 @@ where
     }
     Ok(LiveClassification {
         handle,
-        callback_ptr: raw.cast::<StreamCb>().cast_const(),
-        _callback: arc,
+        _context: context,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use super::{
+        complete_trampoline, error_trampoline, result_trampoline, LiveContext, LiveEvent,
+        LiveHandler,
+    };
+    use crate::error::SAError;
+    use crate::ffi;
+
+    fn recording_context() -> (LiveContext, Arc<Mutex<Vec<LiveEvent>>>) {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&events);
+        let handler: LiveHandler = Mutex::new(Box::new(move |event| {
+            sink.lock().expect("events").push(event);
+        }));
+        (LiveContext::new(handler), events)
+    }
+
+    #[test]
+    fn trampolines_report_updates_failures_and_completion() {
+        let (context, events) = recording_context();
+        let identifier = c"speech";
+        let mut rows = [ffi::ClassificationRaw {
+            identifier: identifier.as_ptr().cast_mut(),
+            confidence: 0.75,
+        }];
+        unsafe {
+            result_trampoline(
+                context.as_ptr(),
+                1.0,
+                0.5,
+                rows.as_mut_ptr().cast(),
+                rows.len(),
+            );
+            error_trampoline(
+                context.as_ptr(),
+                ffi::status::ANALYSIS_FAILED,
+                core::ptr::null_mut(),
+            );
+            complete_trampoline(context.as_ptr());
+        }
+
+        let events = events.lock().expect("events");
+        assert_eq!(events.len(), 3);
+        match &events[0] {
+            LiveEvent::Update(update) => {
+                assert!((update.time_start - 1.0).abs() < f64::EPSILON);
+                assert!((update.time_duration - 0.5).abs() < f64::EPSILON);
+                assert_eq!(update.classifications.len(), 1);
+                assert_eq!(update.classifications[0].identifier, "speech");
+            }
+            other => panic!("expected an update, got {other:?}"),
+        }
+        assert_eq!(
+            events[1],
+            LiveEvent::Failed(SAError::AnalysisFailed(String::new()))
+        );
+        assert_eq!(events[2], LiveEvent::Completed);
+    }
+
+    #[test]
+    fn a_deactivated_context_ignores_late_callbacks() {
+        let (context, events) = recording_context();
+        let foreign = context.retained_ptr();
+        drop(context);
+
+        unsafe {
+            complete_trampoline(foreign);
+            result_trampoline(foreign, 0.0, 0.0, core::ptr::null_mut(), 0);
+            (LiveContext::RELEASE)(foreign);
+        }
+        assert!(events.lock().expect("events").is_empty());
+        assert_eq!(Arc::strong_count(&events), 1);
+    }
+
+    #[test]
+    fn a_panicking_handler_is_contained() {
+        let handler: LiveHandler = Mutex::new(Box::new(|event| {
+            assert_ne!(event, LiveEvent::Completed, "handler panics on completion");
+        }));
+        let context = LiveContext::new(handler);
+        unsafe {
+            complete_trampoline(context.as_ptr());
+            complete_trampoline(context.as_ptr());
+        }
+        assert!(context.is_active());
+    }
 }

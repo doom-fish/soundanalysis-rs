@@ -70,7 +70,7 @@ pub use classifier::{
 pub use file::{AudioFileAnalyzer, AudioFileAnalyzer as SNAudioFileAnalyzer};
 
 #[cfg(feature = "stream")]
-pub use live::{start_live_classification, LiveClassification, StreamUpdate};
+pub use live::{start_live_classification, LiveClassification, LiveEvent, StreamUpdate};
 
 #[cfg(feature = "stream")]
 pub use streaming::AudioStreamAnalyzer as SNAudioStreamAnalyzer;
@@ -92,7 +92,9 @@ pub mod prelude {
     #[cfg(feature = "analyze_file")]
     pub use crate::file::{AudioFileAnalyzer, AudioFileAnalyzer as SNAudioFileAnalyzer};
     #[cfg(feature = "stream")]
-    pub use crate::live::{start_live_classification, LiveClassification, StreamUpdate};
+    pub use crate::live::{
+        start_live_classification, LiveClassification, LiveEvent, StreamUpdate,
+    };
     pub use crate::observer::ResultsObserver as SNResultsObserving;
     pub use crate::observer::{ResultsObserver, ResultsObserverFns, SNResult};
     pub use crate::request::{
