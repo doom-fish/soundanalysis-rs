@@ -9,7 +9,7 @@ description = "Safe Rust bindings for Apple's SoundAnalysis framework — on-dev
 authors = ["Per Johansson <per@doom.fish>"]
 keywords = ["sound", "audio", "classification", "macos", "apple"]
 categories = ["api-bindings", "os::macos-apis", "multimedia::audio"]
-rust-version = "1.76"
+rust-version = "1.82"
 readme = "README.md"
 build = "build.rs"
 include = [
@@ -42,7 +42,7 @@ stream = ["analyze_file"]
 async = []
 
 [dependencies]
-doom-fish-utils = { path = "../doom-fish-utils", version = ">=0.1, <0.4" }
+doom-fish-utils = { path = "../doom-fish-utils", version = ">=0.4.1, <0.5" }
 
 [dev-dependencies]
 regex-lite = "0.1"
