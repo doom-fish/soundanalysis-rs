@@ -1,6 +1,6 @@
 # SoundAnalysis.framework coverage audit
 
-Audited against the macOS `SoundAnalysis.framework` headers shipped in the Xcode 26.5 SDK (`MacOSX26.5.sdk`).
+Audited against the macOS `SoundAnalysis.framework` headers shipped in the Xcode 26.5 SDK (`MacOSX26.5.sdk`). Re-checked on 2026-09-23: the headers in `MacOSX27.0.sdk` are identical. "Implemented" means a Rust entry point exists; `AsyncAudioFileAnalyzer::analyze` was listed here while it was still a stub that never analyzed, which 0.7.0 fixes.
 
 Phase 32 also adds executor-agnostic async wrappers for both `SNAudioFileAnalyzer` completion handlers and `SNAudioStreamAnalyzer` observer flows.
 
@@ -13,7 +13,7 @@ Phase 32 also adds executor-agnostic async wrappers for both `SNAudioFileAnalyze
 | `SNResult.h` | `SNResult` | `SNResult`, `AnalysisResult` | ✅ implemented | Marker traits model the result protocol. |
 | `SNResult.h` | `SNResultsObserving::request(_:didProduceResult:)` | `ResultsObserver::did_produce_result`, `SNResultsObserving` | ✅ implemented | Rust observers receive `ClassifySoundRequest` + `ClassificationResult`. |
 | `SNResult.h` | `SNResultsObserving::request(_:didFailWithError:)` | `ResultsObserver::did_fail_with_error`, `SNResultsObserving` | ✅ implemented | Error callbacks surface as `SAError`. |
-| `SNResult.h` | `SNResultsObserving::requestDidComplete(_:)` | `ResultsObserver::did_complete`, `SNResultsObserving` | ✅ implemented | Completion callback is bridged for file and stream analyzers. |
+| `SNResult.h` | `SNResultsObserving::requestDidComplete(_:)` | `ResultsObserver::did_complete`, `SNResultsObserving` | ✅ implemented | Completion callback is bridged for file and stream analyzers; the live microphone helper reports failures and completion as `LiveEvent::Failed` / `LiveEvent::Completed`. |
 | `SNError.h` | `SNErrorDomain` | `error_domain()`, `SNErrorDomain()` | ✅ implemented | Exposes the framework's raw `NSError` domain string alongside `SAError`. |
 | `SNError.h` | `SNErrorCode` | `ErrorCode`, `SNErrorCode` | ✅ implemented | Mirrors Apple's error enum with raw-value conversion helpers. |
 | `SNClassifySoundRequest.h` | `overlapFactor` | `ClassifySoundRequest::overlap_factor`, `set_overlap_factor` | ✅ implemented | Getter/setter validated in Rust before reaching Swift. |

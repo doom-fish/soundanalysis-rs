@@ -10,6 +10,8 @@ GAPS: 0
 EXEMPT: 0
 COVERAGE_PCT: 100.0%
 
+Re-checked on 2026-09-23: the SoundAnalysis headers in `MacOSX27.0.sdk` are identical to `MacOSX26.5.sdk`. VERIFIED means a Rust entry point exists; `tests/api_coverage.rs` checks that each symbol's name appears in the Rust and Swift sources and does not exercise behavior. `AsyncAudioFileAnalyzer::analyze` was counted while it was a stub that never analyzed; 0.7.0 implements it.
+
 ## 🟢 VERIFIED
 | Symbol | Kind | Header | Wrapped by |
 | --- | --- | --- | --- |

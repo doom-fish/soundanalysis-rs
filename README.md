@@ -4,6 +4,11 @@ Safe Rust bindings for Apple's [SoundAnalysis](https://developer.apple.com/docum
 
 > **Status:** v0.6.4 keeps full public macOS `SoundAnalysis.framework` coverage against the Xcode 26.5 SDK and expands the Tier-1 async layer with both `AsyncAudioFileAnalyzer` and `AsyncAudioStreamAnalyzer`. See [`COVERAGE.md`](COVERAGE.md) for complete API mapping.
 
+## Requirements
+
+- macOS 13 or later, the deployment target of the Swift bridge, and a Swift toolchain (Xcode or the Command Line Tools) to build it.
+- `start_live_classification()` records from the default input device. The app needs `NSMicrophoneUsageDescription` in its `Info.plist` (and the `com.apple.security.device.audio-input` entitlement when sandboxed), and the system asks the user for microphone access the first time. Without an input device it returns `SAError::AnalysisFailed`.
+
 ## Quick start
 
 ```rust,no_run
@@ -55,7 +60,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-For real-time use, `AudioStreamAnalyzer` accepts interleaved or planar PCM buffers (`f32`, `f64`, `i16`, `i32`) and `start_live_classification()` keeps the high-level microphone convenience API. If you prefer Apple naming, the crate now re-exports `SNClassifySoundRequest`, `SNClassifierIdentifier`, `SNAudioFileAnalyzer`, `SNAudioStreamAnalyzer`, `SNClassificationResult`, `SNClassification`, `SNTimeDurationConstraint`, `SNTimeRange`, `SNRequest`, `SNResult`, `SNResultsObserving`, `SNErrorDomain()`, and `SNErrorCode` alongside the ergonomic Rust names. The raw SDK error identifiers are also available as `error_domain()` and `ErrorCode` while `SAError` remains the higher-level operational error type.
+For real-time use, `AudioStreamAnalyzer` accepts interleaved or planar PCM buffers (`f32`, `f64`, `i16`, `i32`) of up to `u32::MAX` frames and bytes per channel buffer, and `start_live_classification()` keeps the high-level microphone convenience API. Its handler receives `LiveEvent::Update` for each classification, `LiveEvent::Failed` when the analysis reports an error, and `LiveEvent::Completed` when the session stops. If you prefer Apple naming, the crate now re-exports `SNClassifySoundRequest`, `SNClassifierIdentifier`, `SNAudioFileAnalyzer`, `SNAudioStreamAnalyzer`, `SNClassificationResult`, `SNClassification`, `SNTimeDurationConstraint`, `SNTimeRange`, `SNRequest`, `SNResult`, `SNResultsObserving`, `SNErrorDomain()`, and `SNErrorCode` alongside the ergonomic Rust names. The raw SDK error identifiers are also available as `error_domain()` and `ErrorCode` while `SAError` remains the higher-level operational error type.
 
 ## Examples
 
