@@ -31,6 +31,14 @@ impl PcmSampleFormat {
             Self::Int32 => ffi::sample_format::INT32,
         }
     }
+
+    const fn bytes_per_sample(self) -> usize {
+        match self {
+            Self::Int16 => 2,
+            Self::Float32 | Self::Int32 => 4,
+            Self::Float64 => 8,
+        }
+    }
 }
 
 /// Audio format description for `SNAudioStreamAnalyzer`.
@@ -182,6 +190,12 @@ impl<'a> PcmBuffer<'a> {
         }
 
         let frame_length = self.frame_length()?;
+        validate_buffer_size(
+            frame_length,
+            expected.channel_count,
+            sample_format,
+            expected.interleaved,
+        )?;
         let channel_count = u32::try_from(expected.channel_count)
             .map_err(|_| SAError::InvalidArgument("channel_count does not fit in u32".into()))?;
 
@@ -218,6 +232,32 @@ impl<'a> PcmBuffer<'a> {
         }
 
         Ok(raw)
+    }
+}
+
+fn validate_buffer_size(
+    frame_length: usize,
+    channel_count: usize,
+    sample_format: PcmSampleFormat,
+    interleaved: bool,
+) -> Result<(), SAError> {
+    if frame_length == 0 {
+        return Err(SAError::InvalidArgument(
+            "PCM buffer must contain at least one frame".into(),
+        ));
+    }
+    let samples_per_frame = if interleaved { channel_count } else { 1 };
+    let fits = u32::try_from(frame_length).is_ok()
+        && samples_per_frame
+            .checked_mul(sample_format.bytes_per_sample())
+            .and_then(|bytes_per_frame| frame_length.checked_mul(bytes_per_frame))
+            .is_some_and(|bytes| u32::try_from(bytes).is_ok());
+    if fits {
+        Ok(())
+    } else {
+        Err(SAError::InvalidArgument(
+            "PCM buffer is too large for an AVAudioPCMBuffer".into(),
+        ))
     }
 }
 
@@ -377,5 +417,65 @@ impl Drop for AudioStreamAnalyzer {
             clear_observers(&mut self.observers);
         }
         unsafe { ffi::sa_audio_stream_analyzer_release(self.ptr.as_ptr()) };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{validate_buffer_size, PcmSampleFormat};
+    use crate::error::SAError;
+
+    fn size_error(
+        frame_length: usize,
+        channel_count: usize,
+        sample_format: PcmSampleFormat,
+        interleaved: bool,
+    ) -> String {
+        match validate_buffer_size(frame_length, channel_count, sample_format, interleaved) {
+            Err(SAError::InvalidArgument(message)) => message,
+            other => panic!("expected an invalid-argument error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn accepts_buffers_that_fit_an_audio_buffer_list() {
+        assert!(validate_buffer_size(1, 1, PcmSampleFormat::Int16, true).is_ok());
+        assert!(validate_buffer_size(4096, 8, PcmSampleFormat::Float64, true).is_ok());
+        assert!(validate_buffer_size((1 << 28) - 1, 2, PcmSampleFormat::Float64, true).is_ok());
+        assert!(validate_buffer_size((1 << 30) - 1, 64, PcmSampleFormat::Float32, false).is_ok());
+    }
+
+    #[test]
+    fn rejects_empty_buffers() {
+        assert_eq!(
+            size_error(0, 1, PcmSampleFormat::Float32, true),
+            "PCM buffer must contain at least one frame"
+        );
+    }
+
+    #[test]
+    fn rejects_buffers_whose_sizes_overflow_u32() {
+        let too_large = "PCM buffer is too large for an AVAudioPCMBuffer";
+        let frames_over_u32 = usize::try_from(u64::from(u32::MAX) + 1).expect("64-bit usize");
+        assert_eq!(
+            size_error(frames_over_u32, 1, PcmSampleFormat::Int16, false),
+            too_large
+        );
+        assert_eq!(
+            size_error(1 << 30, 1, PcmSampleFormat::Float32, false),
+            too_large
+        );
+        assert_eq!(
+            size_error(1 << 28, 2, PcmSampleFormat::Float64, true),
+            too_large
+        );
+        assert_eq!(
+            size_error(usize::MAX, usize::MAX, PcmSampleFormat::Float64, true),
+            too_large
+        );
+        assert_eq!(
+            size_error(2, usize::MAX, PcmSampleFormat::Int16, true),
+            too_large
+        );
     }
 }

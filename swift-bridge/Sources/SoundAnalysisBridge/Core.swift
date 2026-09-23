@@ -307,21 +307,33 @@ func makeAVAudioFormat(from raw: SAStreamFormatRaw) -> AVAudioFormat? {
     )
 }
 
-func makePCMBuffer(from raw: SAStreamBufferRaw, format: AVAudioFormat) -> AVAudioPCMBuffer? {
-    guard raw.frameLength >= 0,
-          format.channelCount == AVAudioChannelCount(raw.channelCount),
+func makePCMBuffer(from raw: SAStreamBufferRaw, format: AVAudioFormat) throws -> AVAudioPCMBuffer {
+    let layoutMismatch = bridgeError("PCM buffer layout does not match analyzer format")
+    guard format.channelCount == AVAudioChannelCount(raw.channelCount),
           format.isInterleaved == raw.interleaved,
           format.commonFormat == avAudioCommonFormat(for: raw.sampleFormat),
-          let bytesPerSample = bytesPerSample(for: raw.sampleFormat),
-          let pcmBuffer = AVAudioPCMBuffer(
-              pcmFormat: format,
-              frameCapacity: AVAudioFrameCount(raw.frameLength)
-          )
+          let bytesPerSample = bytesPerSample(for: raw.sampleFormat)
     else {
-        return nil
+        throw layoutMismatch
+    }
+    guard raw.frameLength > 0 else {
+        throw bridgeError("PCM buffer must contain at least one frame")
     }
 
-    pcmBuffer.frameLength = AVAudioFrameCount(raw.frameLength)
+    let samplesPerFrame = raw.interleaved ? Int(raw.channelCount) : 1
+    let (bytesPerFrame, frameOverflow) = samplesPerFrame.multipliedReportingOverflow(by: bytesPerSample)
+    let (byteCount, byteOverflow) = raw.frameLength.multipliedReportingOverflow(by: bytesPerFrame)
+    guard !frameOverflow, !byteOverflow,
+          let frameCapacity = AVAudioFrameCount(exactly: raw.frameLength),
+          let dataByteSize = UInt32(exactly: byteCount)
+    else {
+        throw bridgeError("PCM buffer is too large for an AVAudioPCMBuffer")
+    }
+    guard let pcmBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCapacity) else {
+        throw bridgeError("could not allocate an AVAudioPCMBuffer for \(raw.frameLength) frames")
+    }
+
+    pcmBuffer.frameLength = frameCapacity
     let buffers = UnsafeMutableAudioBufferListPointer(pcmBuffer.mutableAudioBufferList)
 
     if raw.interleaved {
@@ -329,24 +341,22 @@ func makePCMBuffer(from raw: SAStreamBufferRaw, format: AVAudioFormat) -> AVAudi
               let source = raw.interleavedData,
               let destination = buffers[0].mData
         else {
-            return nil
+            throw layoutMismatch
         }
-        let byteCount = raw.frameLength * Int(raw.channelCount) * bytesPerSample
         memcpy(destination, source, byteCount)
-        buffers[0].mDataByteSize = UInt32(byteCount)
+        buffers[0].mDataByteSize = dataByteSize
         return pcmBuffer
     }
 
     guard let planarData = raw.planarData, buffers.count == Int(raw.channelCount) else {
-        return nil
+        throw layoutMismatch
     }
-    let byteCount = raw.frameLength * bytesPerSample
     for channel in 0..<Int(raw.channelCount) {
         guard let source = planarData[channel], let destination = buffers[channel].mData else {
-            return nil
+            throw layoutMismatch
         }
         memcpy(destination, source, byteCount)
-        buffers[channel].mDataByteSize = UInt32(byteCount)
+        buffers[channel].mDataByteSize = dataByteSize
     }
     return pcmBuffer
 }

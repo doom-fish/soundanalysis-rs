@@ -240,8 +240,11 @@ public func sa_audio_stream_analyzer_analyze_audio_buffer(
 
     let box: SAStreamAnalyzerBox = saBorrow(analyzer, as: SAStreamAnalyzerBox.self)
     let raw = buffer.assumingMemoryBound(to: SAStreamBufferRaw.self).pointee
-    guard let audioBuffer = makePCMBuffer(from: raw, format: box.format) else {
-        return fail(outErrorMessage, status: SA_INVALID_ARGUMENT, message: "PCM buffer layout does not match analyzer format")
+    let audioBuffer: AVAudioPCMBuffer
+    do {
+        audioBuffer = try makePCMBuffer(from: raw, format: box.format)
+    } catch {
+        return fail(outErrorMessage, defaultStatus: SA_INVALID_ARGUMENT, error: error)
     }
 
     box.latestAnalysisError = nil
