@@ -74,9 +74,11 @@ impl ClassifySoundRequest {
         if status != ffi::status::OK {
             return Err(unsafe { from_swift(status, err) });
         }
-        Ok(Self {
-            ptr: NonNull::new(request).expect("sa_request_create_classifier returned null"),
-        })
+        let ptr = NonNull::new(request).ok_or_else(|| SAError::Unknown {
+            code: ffi::status::UNKNOWN,
+            message: "sa_request_create_classifier returned null".into(),
+        })?;
+        Ok(Self { ptr })
     }
 
     /// Create a request backed by a custom Core ML sound-classification model.
@@ -97,9 +99,11 @@ impl ClassifySoundRequest {
         if status != ffi::status::OK {
             return Err(unsafe { from_swift(status, err) });
         }
-        Ok(Self {
-            ptr: NonNull::new(request).expect("sa_request_create_model returned null"),
-        })
+        let ptr = NonNull::new(request).ok_or_else(|| SAError::Unknown {
+            code: ffi::status::UNKNOWN,
+            message: "sa_request_create_model returned null".into(),
+        })?;
+        Ok(Self { ptr })
     }
 
     #[must_use]

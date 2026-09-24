@@ -42,8 +42,12 @@ impl AudioFileAnalyzer {
             return Err(unsafe { from_swift(status, err) });
         }
 
+        let ptr = NonNull::new(analyzer).ok_or_else(|| SAError::Unknown {
+            code: ffi::status::UNKNOWN,
+            message: "sa_audio_file_analyzer_create returned null".into(),
+        })?;
         Ok(Self {
-            ptr: NonNull::new(analyzer).expect("sa_audio_file_analyzer_create returned null"),
+            ptr,
             observers: ObserverMap::default(),
         })
     }

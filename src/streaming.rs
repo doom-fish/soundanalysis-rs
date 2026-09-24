@@ -314,8 +314,12 @@ impl AudioStreamAnalyzer {
             return Err(unsafe { from_swift(status, err) });
         }
 
+        let ptr = NonNull::new(analyzer).ok_or_else(|| SAError::Unknown {
+            code: ffi::status::UNKNOWN,
+            message: "sa_audio_stream_analyzer_create returned null".into(),
+        })?;
         Ok(Self {
-            ptr: NonNull::new(analyzer).expect("sa_audio_stream_analyzer_create returned null"),
+            ptr,
             format,
             observers: ObserverMap::default(),
         })
