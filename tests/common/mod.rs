@@ -1,5 +1,15 @@
+#![allow(dead_code)]
+
 use std::path::PathBuf;
 use std::process::Command;
+
+pub fn live_tests_enabled() -> bool {
+    let enabled = std::env::var("SOUNDANALYSIS_LIVE_TESTS").as_deref() == Ok("1");
+    if !enabled {
+        eprintln!("skip: set SOUNDANALYSIS_LIVE_TESTS=1 to run tests that open the microphone");
+    }
+    enabled
+}
 
 pub fn synthesize_speech(stem: &str, text: &str) -> PathBuf {
     let artifacts = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/test-artifacts");

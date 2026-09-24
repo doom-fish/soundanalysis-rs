@@ -1,5 +1,7 @@
 #![cfg(feature = "stream")]
 
+mod common;
+
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -37,6 +39,9 @@ fn live_api_types_are_send_sync_and_cloneable() {
 
 #[test]
 fn live_classification_reports_completion_when_stopped() {
+    if !common::live_tests_enabled() {
+        return;
+    }
     if !unsafe { sa_live_microphone_authorized() } {
         eprintln!("skipping: microphone access is not authorized, and this test never prompts");
         return;
