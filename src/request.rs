@@ -194,6 +194,7 @@ impl ClassifySoundRequest {
         Ok(out)
     }
 
+    #[cfg(feature = "analyze_file")]
     pub(crate) fn as_raw(&self) -> *mut c_void {
         self.ptr.as_ptr()
     }

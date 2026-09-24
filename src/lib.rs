@@ -21,6 +21,8 @@
 
 pub mod error;
 pub mod ffi;
+#[cfg(feature = "analyze_file")]
+#[cfg_attr(docsrs, doc(cfg(feature = "analyze_file")))]
 pub mod observer;
 pub mod request;
 pub mod time;
@@ -47,7 +49,9 @@ pub mod streaming;
 pub mod async_api;
 
 pub use error::{error_domain, ErrorCode, SAError, SNErrorCode, SNErrorDomain};
+#[cfg(feature = "analyze_file")]
 pub use observer::ResultsObserver as SNResultsObserving;
+#[cfg(feature = "analyze_file")]
 pub use observer::{AnalysisResult, ResultsObserver, ResultsObserverFns, SNResult};
 pub use request::{
     AnalysisRequest, ClassifierIdentifier, ClassifySoundRequest, SNClassifierIdentifier,
@@ -95,7 +99,9 @@ pub mod prelude {
     pub use crate::live::{
         start_live_classification, LiveClassification, LiveEvent, StreamUpdate,
     };
+    #[cfg(feature = "analyze_file")]
     pub use crate::observer::ResultsObserver as SNResultsObserving;
+    #[cfg(feature = "analyze_file")]
     pub use crate::observer::{ResultsObserver, ResultsObserverFns, SNResult};
     pub use crate::request::{
         ClassifierIdentifier, ClassifySoundRequest, SNClassifierIdentifier, SNClassifySoundRequest,
