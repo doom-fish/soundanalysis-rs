@@ -38,9 +38,9 @@ fn version1_request_exposes_labels_and_tuning_surface() -> Result<(), Box<dyn st
     assert!(labels.iter().any(|label| label == "speech"));
     assert!(labels.iter().any(|label| label == "music"));
 
-    let cloned = request.clone();
-    assert_close(cloned.overlap_factor(), 0.25);
-    assert_close(cloned.window_duration(), window_duration);
+    let independent = ClassifySoundRequest::version1()?;
+    assert_close(request.overlap_factor(), 0.25);
+    assert!((independent.overlap_factor() - 0.25).abs() > 1e-9);
     Ok(())
 }
 

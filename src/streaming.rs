@@ -341,7 +341,7 @@ impl AudioStreamAnalyzer {
             ));
         }
 
-        let observer_ptr = box_observer(request, observer);
+        let observer_ptr = box_observer(request, observer)?;
         let mut err = ptr::null_mut();
         let status = unsafe {
             ffi::sa_audio_stream_analyzer_add_request(

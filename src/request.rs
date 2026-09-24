@@ -45,12 +45,10 @@ impl private::Sealed for ClassifySoundRequest {}
 impl SNRequest for ClassifySoundRequest {}
 impl AnalysisRequest for ClassifySoundRequest {}
 
-// `Clone` retains and `Drop` releases the underlying `SNClassifySoundRequest`,
-// matching the single retain in `clone`. Consolidated via `sa_retained!`.
+// `Drop` releases the underlying `SNClassifySoundRequest`. Consolidated via `sa_retained!`.
 sa_retained!(
     ClassifySoundRequest,
     field = ptr,
-    retain = ffi::sa_request_retain,
     release = ffi::sa_request_release,
 );
 
@@ -197,5 +195,16 @@ impl ClassifySoundRequest {
     #[cfg(feature = "analyze_file")]
     pub(crate) fn as_raw(&self) -> *mut c_void {
         self.ptr.as_ptr()
+    }
+
+    #[cfg(feature = "analyze_file")]
+    pub(crate) fn share(&self) -> Result<Self, SAError> {
+        let ptr = unsafe { ffi::sa_request_retain(self.ptr.as_ptr()) };
+        NonNull::new(ptr)
+            .map(|ptr| Self { ptr })
+            .ok_or_else(|| SAError::Unknown {
+                code: ffi::status::UNKNOWN,
+                message: "sa_request_retain returned null".into(),
+            })
     }
 }

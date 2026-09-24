@@ -73,10 +73,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let sync_results = Arc::new(Mutex::new(Vec::new()));
     let sync_completions = Arc::new(Mutex::new(0usize));
-    let sync_request = request.clone();
+    let sync_request = &request;
     let mut file_analyzer = AudioFileAnalyzer::new(&audio)?;
     file_analyzer.add_request(
-        &sync_request,
+        sync_request,
         ResultsObserverFns::new({
             let sync_results = Arc::clone(&sync_results);
             move |_request, result| {
@@ -91,7 +91,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }),
     )?;
     file_analyzer.analyze()?;
-    file_analyzer.remove_request(&sync_request);
+    file_analyzer.remove_request(sync_request);
 
     let sync_results = sync_results.lock().expect("sync_results poisoned");
     println!("sync analyzer results: {}", sync_results.len());

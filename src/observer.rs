@@ -107,15 +107,18 @@ pub(crate) fn request_key(request: &ClassifySoundRequest) -> usize {
     request.as_raw() as usize
 }
 
-pub(crate) fn box_observer<O>(request: &ClassifySoundRequest, observer: O) -> *mut c_void
+pub(crate) fn box_observer<O>(
+    request: &ClassifySoundRequest,
+    observer: O,
+) -> Result<*mut c_void, SAError>
 where
     O: ResultsObserver + 'static,
 {
-    Box::into_raw(Box::new(ObserverState {
-        request: request.clone(),
+    Ok(Box::into_raw(Box::new(ObserverState {
+        request: request.share()?,
         observer: Box::new(observer),
     }))
-    .cast()
+    .cast())
 }
 
 pub(crate) unsafe fn drop_observer(ptr: *mut c_void) {
