@@ -34,6 +34,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is running.
 - Stream capacity zero is rejected with `SAError::InvalidArgument` instead
   of panicking.
+- The crate builds with `--no-default-features`. The `observer` module and
+  the `ResultsObserver`, `ResultsObserverFns`, `SNResult`, `AnalysisResult`
+  and `SNResultsObserving` re-exports only exist with `analyze_file`, like
+  the analyzers they serve (without it the crate did not compile at all).
+- The request and analyzer constructors return `SAError::Unknown` instead
+  of panicking when the bridge reports success with a null handle.
 
 ### Changed
 
@@ -44,6 +50,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fails for a missing file. The analyzer dereferences to `AudioFileAnalyzer`,
   `analyze()` takes `&mut self`, and `AnalyzeFileFuture` has a lifetime and
   resolves to `Result<bool, SAError>`.
+- **Breaking:** `ClassifySoundRequest` no longer implements `Clone`. It has
+  `&mut` setters, but a clone only retained the same
+  `SNClassifySoundRequest`, so changing the clone changed the original and
+  every analyzer using it; the class can't be copied. Create another
+  request instead.
 - **Breaking (raw FFI):** `sa_audio_file_analyzer_analyze_async` takes the
   analyzer handle and reports status, `didReachEndOfFile` and an error
   message; `sa_stream_start` takes error and completion callbacks and
