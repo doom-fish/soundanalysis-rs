@@ -170,6 +170,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Example artifacts are written under `target/example-artifacts/` instead of `/tmp`.
 - README roadmap now reflects complete framework coverage.
 
+## [0.3.0] - 2026-05-16
+
+### Added
+
+- Add `classify_file_with_model()` for custom Core ML classifiers.
+
+## [0.2.0] - 2026-05-16
+
+### Added
+
+- Add live microphone classification through `SNAudioStreamAnalyzer`.
+
 ## [0.1.0] - Initial release
 
 ### Added
