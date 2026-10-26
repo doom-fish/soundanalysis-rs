@@ -17,7 +17,7 @@ fn version1_request_exposes_labels_and_tuning_surface() -> Result<(), Box<dyn st
 
     match request.window_duration_constraint()? {
         TimeDurationConstraint::Enumerated(durations) => {
-            assert!(!durations.is_empty());
+            assert_ne!(durations, [] as [f64; 0]);
             assert!(durations
                 .iter()
                 .all(|duration| duration.is_finite() && *duration > 0.0));
